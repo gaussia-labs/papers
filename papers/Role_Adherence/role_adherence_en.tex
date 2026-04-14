@@ -1,0 +1,509 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{geometry}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{natbib}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{caption}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+
+\geometry{margin=1in}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue!60!black,
+    citecolor=blue!60!black,
+    urlcolor=blue!60!black
+}
+
+\title{\textbf{Role Adherence: A Metric for Evaluating Role Consistency\\
+in Multi-Turn Conversational AI}}
+
+\author{
+    Axel Fritz\\
+    \texttt{axel.fritz@alquimia.ai}\\
+    Alquimia AI
+    \and
+    Alex Fiorenza\\
+    \texttt{alex.fiorenza@alquimia.ai}\\
+    Alquimia AI
+}
+
+\date{April 2026}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+As conversational AI systems are increasingly deployed in role-constrained
+settings --- customer support agents, educational tutors, medical assistants
+--- the ability to measure whether a model consistently adheres to its
+assigned role becomes a core quality requirement. This paper proposes
+\textbf{Role Adherence}, a metric for the Gaussia evaluation framework that
+quantifies the degree to which an AI assistant maintains its defined role
+throughout a multi-turn conversation. We define adherence constructively,
+describe a dual-path scoring strategy conditioned on the availability of
+ground-truth data, and discuss design decisions and alternative formulations
+considered during development. No empirical validation is presented; this
+paper constitutes a design proposal intended to guide the implementation of
+the metric within the Gaussia SDK.
+\end{abstract}
+
+% ---------------------------------------------------------------------------
+\section{Introduction}
+% ---------------------------------------------------------------------------
+
+Modern LLM-based assistants are typically deployed with a system prompt that
+defines their role: the topics they should cover, the tone they should adopt,
+the behaviours they should exhibit, and the boundaries they should respect.
+Despite this, models frequently deviate from their assigned roles --- answering
+out-of-scope questions, abandoning their defined persona, or failing to exhibit
+the behaviour their role requires.
+
+Existing evaluation frameworks either measure role adherence at the level of
+individual turns in isolation \citep{zheng2023judging}, or rely entirely on
+LLM-based judges, which introduce reproducibility and cost concerns
+\citep{deriu2021survey}. This paper proposes a more complete metric that
+evaluates adherence across the full conversational context, supports both
+structured and unstructured role definitions, and offers a deterministic
+scoring path when reference data is available.
+
+% ---------------------------------------------------------------------------
+\section{Problem Statement}
+% ---------------------------------------------------------------------------
+
+Given a multi-turn conversation between a user and an AI assistant, and a
+definition of the role the assistant is expected to play, we want to compute a
+scalar score representing how consistently the assistant adhered to that role
+throughout the conversation.
+
+Let a conversational session be a sequence of assistant turns
+$t_1, t_2, \ldots, t_n$, and let $R$ denote the role definition. The Role
+Adherence score is defined as:
+
+\begin{equation}
+  \text{RoleAdherence}(R, T) = \frac{1}{n} \sum_{i=1}^{n}
+  \text{adhere}(t_i,\; T_{<i},\; R)
+  \label{eq:score}
+\end{equation}
+
+where $T_{<i}$ is the conversation history up to turn $i$, and
+$\text{adhere}(\cdot) \in [0, 1]$ is a per-turn adherence score. The
+session score lies in $[0, 1]$, where 1 indicates full adherence across
+all turns. The range of $\text{adhere}(\cdot)$ and how it is computed
+depend on the scoring path selected (Section~\ref{sec:scoring}).
+
+% ---------------------------------------------------------------------------
+\section{Defining Adherence}
+\label{sec:adherence}
+% ---------------------------------------------------------------------------
+
+\subsection{Constructive vs.\ Restrictive Adherence}
+
+Two competing definitions of adherence are possible.
+
+\textbf{Restrictive adherence} asks: \emph{did the assistant avoid going
+outside the scope of its role?} A turn is compliant if it does not address
+topics or exhibit behaviours explicitly excluded by the role. This definition
+only penalises negative deviations.
+
+\textbf{Constructive adherence} asks: \emph{did the assistant actively behave
+as its role requires?} A turn is compliant only if it exhibits the behaviour,
+tone, and knowledge a properly role-playing assistant should exhibit. This
+definition penalises both negative deviations (scope violations) and positive
+failures (failing to act as the role demands).
+
+Consider an assistant assigned the role of a technical support agent. If the
+user asks a question within the assistant's domain and the assistant responds
+``I don't know'', restrictive adherence would record no violation --- no
+out-of-scope content was produced. Constructive adherence would record a
+failure, because a role-adherent support agent is expected to answer questions
+in its domain.
+
+We adopt the \textbf{constructive definition} as the primary formulation for
+this metric, as it provides a more meaningful signal for production quality
+assessment. Restrictive adherence remains a valid and simpler formulation for
+use cases where the primary concern is containment rather than quality of
+execution. Both definitions are implementable within the proposed schema.
+
+\subsection{Conversational Context}
+
+When evaluating whether turn $t_i$ adheres to role $R$, the evaluator receives
+the full conversation history $T_{<i} = \{t_1, \ldots, t_{i-1}\}$. A turn
+evaluated in isolation may appear off-role but be entirely appropriate given
+prior context. Conversely, a turn evaluated in isolation may appear neutral but
+represent a pattern of escalating deviation only visible across the
+conversational arc.
+
+The alternative --- evaluating each turn independently --- is computationally
+cheaper and avoids context-window constraints in very long conversations. We
+note this as a valid trade-off for resource-constrained deployments but do not
+adopt it as the default behaviour.
+
+% ---------------------------------------------------------------------------
+\section{Role Definition Schema}
+% ---------------------------------------------------------------------------
+
+\subsection{Placement in the Data Model}
+
+The role definition is a property of the conversational session, not of the
+metric. Two sessions with the same conversation content but different assigned
+roles represent fundamentally different evaluation scenarios. Accordingly,
+\texttt{chatbot\_role} is defined as a field on the \texttt{Dataset} object.
+
+An alternative considered was to pass the role as a parameter at metric
+instantiation time, which would allow evaluating the same dataset against
+multiple roles. This was discarded on the grounds that a dataset already
+carries implicit contextual assumptions: the way a user interacts with a
+customer support agent differs from how they interact with a coding assistant,
+even if the raw conversation text were identical. Separating the role from the
+session would break this coupling and weaken the semantic integrity of the
+dataset object.
+
+\subsection{Format: String or Structured}
+
+Role definitions in practice range from a single prose sentence to detailed
+specifications with topic lists, tone requirements, and explicit restrictions.
+To accommodate both, we propose that \texttt{chatbot\_role} support two
+formats:
+
+\textbf{String format} --- free-form natural language description of the role.
+Flexible and low-friction for exploratory evaluation.
+
+\textbf{Structured format} --- a \texttt{RoleDefinition} object with explicit
+fields: \texttt{description} (required), \texttt{allowed\_topics} (optional
+list), \texttt{tone} (optional string), and \texttt{restrictions} (optional
+list). This format reduces ambiguity in judge prompts and unlocks
+constraint-based deterministic evaluation (Section~\ref{sec:constraints}).
+
+Both formats are valid inputs. The evaluation pipeline adapts accordingly. The
+structured format is proposed as the preferred option for production
+deployments where reproducibility and auditability are priorities.
+
+% ---------------------------------------------------------------------------
+\section{Scoring Methodology}
+\label{sec:scoring}
+% ---------------------------------------------------------------------------
+
+\subsection{Dual-Path Strategy}
+
+The scoring strategy bifurcates based on the availability of ground-truth
+data:
+
+\begin{itemize}
+  \item \textbf{Without ground truth}: an LLM-as-a-judge evaluates each
+        assistant turn against the role definition and conversation history.
+  \item \textbf{With ground truth}: a deterministic metric compares each
+        assistant turn against an expected role-adherent reference response.
+\end{itemize}
+
+This separation is principled. LLM-based judges are well-suited for
+open-ended evaluation where no reference answer exists \citep{zheng2023judging},
+but introduce non-determinism, model dependency, and inference cost. When
+reference data is available, deterministic metrics offer reproducibility,
+auditability, and lower computational cost.
+
+\subsection{LLM-as-a-Judge Path}
+
+When no ground truth is available, each assistant turn $t_i$ is evaluated by
+an LLM judge that receives: (1) the role definition $R$; (2) the conversation
+history $T_{<i}$; and (3) the turn to evaluate $t_i$. The judge prompt is
+constructed to implement the constructive adherence definition: the judge is
+asked not only whether the turn avoids scope violations, but whether it
+actively reflects the expected behaviour of the defined role.
+
+The judge can be configured to return either a \textbf{continuous score} in
+$[0, 1]$ or a \textbf{binary score} in $\{0, 1\}$. Continuous scoring is more
+expressive --- a response that mostly adheres but deviates in tone might
+receive 0.7 rather than a hard 0 --- but LLMs are generally not well-calibrated
+for numeric outputs, meaning the same response may receive different scores
+across calls. Binary scoring trades nuance for consistency and reproducibility.
+We propose binary scoring as the default for the LLM judge path, with
+continuous scoring available as a configurable option for deployments that
+prioritise granularity over stability. When \texttt{include\_reason} is
+enabled, the judge additionally returns a natural-language justification for
+each per-turn score.
+
+\subsection{Deterministic Path}
+\label{sec:deterministic}
+
+When a \texttt{ground\_truth\_assistant} response is available for each turn,
+the following metrics are proposed as scoring functions. The per-turn score is
+continuous in $[0, 1]$ and is averaged across turns to produce the session
+score.
+
+\subsubsection{BERTScore}
+
+BERTScore \citep{zhang2020bertscore} computes semantic similarity between two
+texts by extracting contextual token embeddings from a pre-trained language
+model and computing precision, recall, and F1 over token-level cosine
+similarities. Unlike surface-level metrics, it captures paraphrastic
+equivalence. We adopt BERTScore F1 as the \textbf{primary deterministic
+metric}:
+
+\begin{equation}
+  \text{BERTScore}_{F_1} = 2 \cdot \frac{P_{\text{BERT}} \cdot R_{\text{BERT}}}
+  {P_{\text{BERT}} + R_{\text{BERT}}}
+\end{equation}
+
+Role-adherent responses are not expected to reproduce the exact phrasing of a
+reference. BERTScore tolerates natural linguistic variation while remaining
+independent of a secondary judge model.
+
+\subsubsection{Semantic Cosine Similarity}
+
+Cosine similarity between sentence-level embeddings \citep{reimers2019sentencebert}
+is a lighter-weight alternative. A sentence encoder maps each response to a
+dense vector; adherence is scored as the cosine of the angle between the
+candidate and reference vectors:
+
+\begin{equation}
+  \text{sim}(\mathbf{a}, \mathbf{b}) =
+  \frac{\mathbf{a} \cdot \mathbf{b}}{\|\mathbf{a}\|\,\|\mathbf{b}\|}
+\end{equation}
+
+Cosine similarity operates at sentence granularity rather than token
+granularity, making it faster but less sensitive to fine-grained semantic
+differences. BERTScore and cosine similarity are compatible and non-exclusive
+--- they measure related but distinct levels of semantic granularity. Where
+computational resources permit, BERTScore is preferred.
+
+\subsubsection{Natural Language Inference}
+
+NLI models \citep{bowman2015snli} classify the relationship between two texts
+as \emph{entailment}, \emph{neutral}, or \emph{contradiction}. Applied to role
+adherence, a candidate response that contradicts what a ground-truth
+role-adherent response asserts is a strong signal of non-adherence. NLI is
+proposed as a complementary signal for detecting explicit violations rather
+than measuring overall similarity. A \emph{contradiction} label serves as a
+hard penalty regardless of similarity scores.
+
+\subsubsection{Constraint-Based Evaluation}
+\label{sec:constraints}
+
+When the role is defined in structured format, adherence can be partially
+evaluated through explicit constraint verification without any model inference:
+
+\begin{itemize}
+  \item \textbf{Topic scope}: whether the response discusses topics outside
+        \texttt{allowed\_topics}.
+  \item \textbf{Restriction compliance}: whether the response violates any
+        item in \texttt{restrictions}.
+  \item \textbf{Tone consistency}: whether the detected tone matches the
+        expected \texttt{tone} field.
+\end{itemize}
+
+These checks are deterministic, fully reproducible, and computationally
+trivial. They are proposed as a first-pass filter that complements
+BERTScore or cosine similarity rather than replacing them.
+
+\subsubsection{Lexical Metrics: Considered and Discarded}
+
+ROUGE \citep{lin2004rouge} and BLEU \citep{papineni2002bleu} measure n-gram
+overlap between candidate and reference texts. Both were considered and
+discarded as primary metrics for this use case.
+
+Role-adherent responses are not expected to reproduce the exact phrasing of a
+reference --- they are expected to exhibit the same role-consistent behaviour
+with natural linguistic variation. N-gram metrics penalise paraphrases and
+reward surface-level copying, neither of which is desirable here. ROUGE and
+BLEU are noted as valid lightweight baselines for benchmarking purposes only.
+
+% ---------------------------------------------------------------------------
+\section{Configuration Parameters}
+% ---------------------------------------------------------------------------
+
+The metric exposes four optional parameters that control evaluation behaviour
+without altering the underlying methodology.
+
+\textbf{\texttt{threshold}} (default: 0.5) --- the minimum session score
+required to consider the assistant as role-adherent. Scores at or above this
+value are marked as passing. The threshold applies to the final session scalar
+produced by Equation~\ref{eq:score}.
+
+\textbf{\texttt{strict\_mode}} (default: \texttt{False}) --- when set to
+\texttt{True}, the session score is converted to a binary output: 1 if the
+score equals 1.0 (every turn adheres), 0 otherwise. This also overrides
+\texttt{threshold} to 1.0. Strict mode is intended for high-criticality
+deployments --- such as medical or legal assistants --- where partial adherence
+is not acceptable.
+
+\textbf{\texttt{include\_reason}} (default: \texttt{True}) --- when enabled
+and the LLM-judge path is active, the judge returns a natural-language
+justification alongside each per-turn score. Justifications aid interpretability
+and are included in the metric output for inspection.
+
+\textbf{\texttt{model}} --- the LLM used as the judge in the no-ground-truth
+path. Follows the \texttt{Guardian} abstraction already present in the Gaussia
+framework, allowing any supported provider to be substituted without changes
+to the metric logic.
+
+% ---------------------------------------------------------------------------
+\section{Implementation Considerations}
+% ---------------------------------------------------------------------------
+
+The metric extends the \texttt{Gaussia} base class. The \texttt{batch()}
+method iterates over each assistant turn in a session, selects the
+LLM-judge or deterministic path based on the presence of
+\texttt{ground\_truth\_assistant}, and appends a per-turn score. The session
+score is the mean of per-turn scores (Equation~\ref{eq:score}).
+
+The \texttt{chatbot\_role} field is read from the \texttt{Dataset} object.
+When \texttt{chatbot\_role} is a \texttt{RoleDefinition}, the structured
+fields are serialised into the judge prompt and, where applicable, used for
+constraint-based evaluation. When it is a plain string, it is passed directly.
+
+Statistical mode compatibility (Frequentist and Bayesian) follows the existing
+Gaussia pattern. No changes to the statistical layer are required.
+
+\newpage
+
+% ---------------------------------------------------------------------------
+\section{Design Decisions Summary}
+% ---------------------------------------------------------------------------
+
+\begin{table}[h]
+  \centering
+  \caption{Summary of design decisions and alternatives considered.}
+  \label{tab:decisions}
+  \begin{tabular}{p{4.2cm} p{5.2cm} p{4.5cm}}
+    \toprule
+    \textbf{Dimension} & \textbf{Decision} & \textbf{Alternative Considered} \\
+    \midrule
+    \texttt{chatbot\_role} location
+      & Field on \texttt{Dataset}
+      & Parameter of the metric \\
+    \addlinespace
+    Adherence definition
+      & Constructive
+      & Restrictive \\
+    \addlinespace
+    Role format
+      & \texttt{str | RoleDefinition}
+      & String-only \\
+    \addlinespace
+    Judge context
+      & Full conversation history up to turn
+      & Per-turn isolation \\
+    \addlinespace
+    Scoring without GT
+      & LLM-as-a-judge
+      & --- \\
+    \addlinespace
+    LLM judge output mode
+      & Binary (default), continuous (configurable)
+      & Continuous-only \\
+    \addlinespace
+    Scoring with GT
+      & BERTScore (primary), cosine similarity (lightweight), NLI (violation detection)
+      & ROUGE, BLEU (discarded) \\
+    \addlinespace
+    Score output
+      & Session-level scalar in $[0, 1]$
+      & --- \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+
+% ---------------------------------------------------------------------------
+\section{Future Work}
+% ---------------------------------------------------------------------------
+
+The current proposal scopes Role Adherence to text-only conversations.
+Extending the metric to \textbf{multimodal settings} is identified as the
+primary direction for future development.
+
+\subsection{Multimodal Role Adherence}
+
+Conversational AI systems are increasingly capable of processing and generating
+content across multiple modalities --- images, audio, and video alongside text.
+A role-adherent response in a multimodal context must satisfy the same
+constructive definition proposed in Section~\ref{sec:adherence}: the assistant
+must actively behave as the role requires, not merely avoid out-of-scope
+output. This requirement extends naturally to non-text modalities.
+
+\subsubsection{Role Definition Extensions}
+
+The \texttt{RoleDefinition} schema would require a \texttt{modalities} field
+specifying which content types the role operates over (e.g.,
+\texttt{["text", "image"]}, \texttt{["text", "audio"]}). The presence of this
+field makes modality compliance an explicit dimension of adherence: an
+assistant whose role requires generating images but responds with text only
+fails constructive adherence regardless of the textual content quality.
+
+\subsubsection{Scoring in Multimodal Settings}
+
+The dual-path strategy generalises to multimodal content, but the concrete
+scoring functions differ by modality:
+
+\textbf{LLM-as-a-judge path} --- when the conversation contains non-text
+content, the judge must be a vision-capable or otherwise multimodal model.
+The judge logic and prompt structure remain unchanged; only the model
+requirement is elevated.
+
+\textbf{Deterministic path} --- BERTScore and cosine similarity over text
+embeddings do not apply to image or audio content. For image modalities, we
+propose exploring CLIP-based similarity \citep{radford2021clip}, which embeds
+images and text into a shared semantic space and allows cross-modal comparison.
+For mixed responses combining text and image, a weighted combination of
+text-based and image-based similarity scores would be required, with the
+weighting strategy to be determined empirically.
+
+\subsubsection{Data Schema}
+
+The \texttt{Batch} schema currently models \texttt{query} and
+\texttt{assistant} as plain text fields. Supporting multimodal content would
+require these fields to accept structured payloads that can carry text, image
+references, or audio alongside appropriate metadata. This is a schema-level
+change with no impact on the metric formula or scoring logic.
+
+\subsection{Additional Directions}
+
+\begin{itemize}
+  \item \textbf{Empirical validation}: comparison of scoring strategies
+        (BERTScore, cosine similarity, NLI, LLM judge) against human
+        annotations of role adherence across diverse role types and domains.
+
+  \item \textbf{Structured role extraction}: automatic construction of a
+        \texttt{RoleDefinition} from a free-form system prompt using an LLM,
+        enabling constraint-based evaluation without manual annotation.
+
+  \item \textbf{Turn-level reporting}: exposing per-turn adherence scores
+        alongside the session aggregate to allow fine-grained diagnosis of
+        where role deviation occurs.
+
+  \item \textbf{Cross-lingual evaluation}: role adherence in multilingual
+        assistants, where role definitions and responses may be in different
+        languages.
+\end{itemize}
+
+% ---------------------------------------------------------------------------
+\section{Conclusion}
+% ---------------------------------------------------------------------------
+
+We have proposed Role Adherence, a metric for the Gaussia evaluation framework
+that measures how consistently an AI assistant maintains its assigned role
+across a multi-turn conversation. The metric adopts a constructive definition
+of adherence, evaluates each turn in full conversational context, and offers a
+dual scoring path --- LLM-as-a-judge when no reference data is available, and
+deterministic semantic metrics (BERTScore, cosine similarity, NLI) when ground
+truth is present. The role definition is modelled as a first-class field on the
+session dataset, supporting both free-form string and structured formats. This
+paper constitutes a design proposal scoped to text-only conversations; extension
+to multimodal settings is identified as the primary direction for future work.
+
+\bibliographystyle{plainnat}
+\bibliography{refs}
+
+\end{document}
