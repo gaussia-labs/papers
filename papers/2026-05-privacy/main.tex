@@ -1,0 +1,1057 @@
+\documentclass[11pt,a4paper]{article}
+
+% Packages
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{natbib}
+\usepackage{booktabs}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage[margin=1in]{geometry}
+
+% Metadata
+\title{\textbf{Domain-adjusted scoring and risk for the selection of privacy detection models in regulated environments}}
+\author{
+  Juan F Cobo\thanks{Ethicompass} \\
+  \texttt{juan@ethicompass.com}
+  \and
+  Leonarndo Leenen\thanks{Ethicompass} \\
+  \texttt{leonardoleenen@gmail.com}
+}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+The selection of models for the detection, classification, or redaction of sensitive information cannot be reduced to the direct comparison of general performance metrics, such as precision, recall, or $F_1$. In regulated domains, and particularly in contexts involving personal data, health data, financial identifiers, or information subject to specific regulatory obligations, the usefulness of a model depends on its domain fit, the coverage of the required taxonomy, the severity associated with false negatives, infrastructure constraints, and regulatory adequacy. This work proposes a multicriteria function called the \textit{Domain-Adjusted Privacy Detection Score}, aimed at answering two operational questions: which model is most suitable for a given domain and what score can be attributed to that model in such a context. The proposal is formulated as a normalized and multiplicative scheme, interpretable on a percentage scale, which enables the comparison of heterogeneous models under consistent and auditable criteria.
+\end{abstract}
+
+\noindent\textbf{Keywords:} privacy, PII detection, PHI detection, model evaluation, regulatory compliance, domain-adjusted metrics.
+
+\section{Introduction}
+
+The universe of models applicable to the field of artificial intelligence and privacy is broad and heterogeneous. As an initial approximation, a distinction may be made between general-purpose models and specialized models. General-purpose models are typically oriented toward the identification of commonly used sensitive entities, such as names, addresses, postal codes, email addresses, telephone numbers, or account identifiers. Specialized models, by contrast, incorporate additional capabilities associated with specific domains, for example the detection of medical diagnoses, mentions of diseases, treatments, administered medication, clinical identifiers, insurance information, or elements linked to sector-specific regulatory compliance.
+
+Since measurement defines what is being measured, before selecting a model for a given domain it is necessary to answer two fundamental questions:
+
+\begin{enumerate}
+    \item \textbf{What is the model score?}
+    \item \textbf{What is the best model for the domain?}
+\end{enumerate}
+
+In general, these questions are usually addressed through metrics provided by the model developer, such as precision, recall, false positive rate, or $F_1$ score. Although these metrics are relevant, they do not always adequately describe the behavior of the model within a particular domain. Moreover, two models with similar aggregate performance may exhibit substantially different behavior when applied to the \textit{same dataset}, especially when sensitive classes, local taxonomies, or specific regulatory conditions are evaluated. In contexts of auditing, privacy, and regulatory compliance, this divergence may have significant consequences.
+
+Therefore, the central hypothesis of this work is that the best model is not necessarily the one that maximizes a general metric, but rather the one that maximizes a utility and risk function adjusted for domain, taxonomy, regulatory criticality, critical recall, and coverage of sensitive labels. Consequently, \textbf{model comparison should not be interpreted as an abstract competition among architectures, but as a contextual selection procedure dependent on the user, the application domain, and the obligations associated with data processing}.
+
+\section{Related Work}
+
+\subsection{Models Considered}
+
+One of the core hypotheses of our work is that the metric must be model-agnostic. Essentially, we treat the model as a black box. Under this hypothesis, the user retains control over the following components:
+
+\begin{itemize}
+    \item The inputs.
+    \item The outputs.
+    \item The domain definition.
+    \item The weight definitions.
+    \item The specific models to be evaluated.
+\end{itemize}
+
+Consequently, the internal mechanics of how the model performs its calculations are irrelevant to the metric. Furthermore, given the critical nature of privacy concerns, having access to the model's official model card becomes a primary requirement.
+
+The central question addressed by these models is formulated as follows:
+
+\begin{quote}
+\textit{At what level of performance does the model detect and redact sensitive entities in text?}
+\end{quote}
+
+Their performance is typically characterized by the following standard metrics:
+
+\begin{equation}
+    \mathrm{Precision}, \qquad \mathrm{Recall}, \qquad F_1, \qquad F_{\beta}.
+\end{equation}
+
+While these metrics \textbf{are necessary} to characterize detection behavior, \textbf{they are insufficient} when it is required to evaluate regulatory adequacy, taxonomic coverage, operational costs, or differential criticality across various sensitive classes.
+%\subsection{Formal privacy models}
+
+%A second family corresponds to formal privacy models, among which the following stand out:
+
+%\begin{equation}
+    %\text{Differential Privacy}, \qquad \text{Local Differential Privacy}.
+%\end{equation}
+
+%These models answer a different question:
+
+%\begin{quote}
+%\textit{What mathematical guarantee is offered against individual inference?}
+%\end{quote}
+
+%In particular, local differential privacy does not aim to detect PII or PHI entities in documents, but rather to protect aggregate statistics through local perturbation mechanisms. Therefore, it does not directly compete with sensitive entity detection models. Its function is different and must be evaluated under a distinct conceptual framework.
+
+%\subsection{Classical anonymization and re-identification models}
+
+%The third family comprises classical approaches linked to residual re-identification or inference risk over datasets. These include:
+
+%\begin{equation}
+ %   k\text{-anonymity}, \qquad l\text{-diversity}, \qquad t\text{-closeness}, \qquad k\text{-map}, \qquad \delta\text{-presence}.
+%\end{equation}
+
+%These models answer the following question:
+
+%\begin{quote}
+%\textit{What is the residual risk of re-identification or inference over a dataset?}
+%\end{quote}
+
+%They also do not directly compete with a PII/PHI detector. In a broader privacy architecture, they may operate as subsequent, parallel, or complementary layers. However, their inclusion entails additional operational costs and requires that the evaluated problem effectively involve re-identification risk at the dataset level. The present proposal does not address model combination or the formal quantification of re-identification risk; therefore, these approaches are mentioned as alternatives for future methodological extensions.
+
+\section{Methodology}
+
+\subsection{Formal Definition}
+
+\subsubsection{Model selection problem}
+
+Let $\mathcal{M}=\{M_1,M_2,\ldots,M_k\}$ be the set of candidate models and let $d$ be the application domain. The objective is to identify the model $M_d^*$ that maximizes a domain-adjusted scoring function:
+
+\begin{equation}
+    M_d^* = \arg\max_{M_i \in \mathcal{M}} \mathrm{Score}(M_i,d).
+\end{equation}
+
+The methodological error would consist in selecting the model exclusively through an aggregate metric, for example:
+
+\begin{equation}
+    M^* = \arg\max_{M_i \in \mathcal{M}} F_1(M_i).
+\end{equation}
+
+This approach is insufficient because the construction of an aggregate metric may dilute critical information, including:
+
+\begin{itemize}
+    \item whether the model covers the labels required by the domain;
+    \item whether recall is sufficient for critical classes;
+    \item whether it was validated in the appropriate language;
+    \item whether it supports specific clinical or sectoral entities;
+    \item whether it can be deployed under CPU, memory, or local infrastructure constraints;
+    \item whether it satisfies latency requirements;
+    \item whether it enables traceability and auditing;
+    \item whether it allows fine-tuning or taxonomy extension;
+    \item whether its taxonomy matches the local privacy policy.
+\end{itemize}
+
+For these reasons, a multicriteria function called the \textit{Domain-Adjusted Privacy Detection Score} is proposed, whose objective is to integrate empirical performance, taxonomic coverage, domain fit, regulatory adequacy, infrastructure constraints, and penalties for critical false negatives.
+
+\subsubsection{Validated Data Set}
+
+For a propper calculation, the corner stone for the calculation of the metrics it's the imput data set. The validate dataset must follow stricly the following guidelines:
+
+\begin{itemize}
+    \item Validated tagged text.
+    \item The same text but not tagged.
+    \item The tags must correspond with those defined in the modelcard.
+    \item it's not mandatory to cover el the tags defined in the modelcard.
+\end{itemize}
+
+\subsubsection{Definition of the base detection score}
+
+Since theory defines what can be observed, a theoretical methodology is proposed to answer the questions previously raised.
+
+For each model $M_i$ and domain $d$, the initial performance is \textbf{evaluated on a dataset validated for that domain}:
+
+\begin{equation}
+    D_d = \{(x_j,y_j)\}_{j=1}^{n},
+\end{equation}
+
+where $x_j$ represents the input text, $y_j$ the true PII/PHI spans, and $\hat{y}_j=M_i(x_j)$ the spans predicted by the model.
+
+For each sensitive class $c$, the classical metrics are defined as:
+
+\begin{equation}
+    \mathrm{Precision}_{i,c} =
+    \frac{TP_{i,c}}{TP_{i,c}+FP_{i,c}},
+\end{equation}
+
+\begin{equation}
+    \mathrm{Recall}_{i,c} =
+    \frac{TP_{i,c}}{TP_{i,c}+FN_{i,c}},
+\end{equation}
+
+\begin{equation}
+    F_{\beta,i,c} =
+    (1+\beta^2)
+    \frac{\mathrm{Precision}_{i,c}\cdot \mathrm{Recall}_{i,c}}
+    {\beta^2\mathrm{Precision}_{i,c}+\mathrm{Recall}_{i,c}}.
+\end{equation}
+
+In privacy-related problems, it is often convenient to use $\beta=2$, since a false negative is generally more costly than a false positive. In other words, \textit{failing to detect sensitive information is usually more serious than detecting information excessively}. Nevertheless, this design decision must be adjusted to the user’s needs, the evaluated domain, and the applicable regulatory framework.
+
+The base detection score is defined as a weighted sum over the relevant classes of the domain:
+
+\begin{equation}
+    \mathrm{DetectionScore}(M_i,d)=
+    \sum_{c\in\mathcal{C}_d} w_{c,d}F_{2,i,c},
+\end{equation}
+
+where $\mathcal{C}_d$ is the set of relevant classes for domain $d$, $w_{c,d}$ represents \textit{the relative criticality of class $c$ in that domain}, and it is required that:
+
+\begin{equation}
+    \sum_{c\in\mathcal{C}_d} w_{c,d}=1.
+\end{equation}
+
+\subsubsection{Adjustment for taxonomic coverage}
+
+A model may exhibit high performance values on its own validation data and, nevertheless, fail to adequately classify entities required by a specific domain. In medicine, for example, the HIPAA standard suggests the detection of the following classes:
+
+\begin{itemize}
+    \item name
+    \item address
+    \item telephone number
+    \item email address
+    \item date of birth
+    \item medical record number
+    \item health insurance identifier
+    \item clinical site
+    \item name of the treating professional
+    \item device identifier
+    \item genetic identifier
+\end{itemize}
+
+By contrast, a general-purpose model may cover a different subset of classes, for example:
+
+\begin{itemize}
+    \item account numbers
+    \item addresses
+    \item email addresses
+    \item telephone numbers
+    \item URL
+    \item dates
+\end{itemize}
+
+Therefore, it is necessary to introduce an explicit adjustment for taxonomic coverage.
+
+Let $\mathcal{C}_{M_i}$ be the set of classes that model $M_i$ is capable of detecting and let $\mathcal{C}_d$ be the set of classes required by the domain. It is defined as:
+
+\begin{equation}
+    \mathrm{Coverage}(M_i,d)=
+    \frac{|\mathcal{C}_{M_i}\cap \mathcal{C}_d|}{|\mathcal{C}_d|}.
+\end{equation}
+
+The coverage-adjusted detection score is given by:
+
+\begin{equation}
+    \mathrm{DetectionScore}^{\mathrm{cov}}(M_i,d)=
+    \mathrm{DetectionScore}(M_i,d)\cdot \mathrm{Coverage}(M_i,d).
+\end{equation}
+
+\textit{This adjustment prevents a model from obtaining a high score when it does not account for the categories required by the evaluated domain}. At the same time, it allows improvements to be reflected when the model supports class extension, fine-tuning, or the incorporation of specific rules. \textit{The definition of critical categories is not trivial and must consider, at a minimum, local legislation, national legislation, sectoral regulations, internal data-processing policies, operational criticality, and the contextual sensitivity of each class}.
+
+\subsubsection{Domain adjustment}
+
+Domain adjustment introduces a dimension that cannot, and should not, be defined in a purely algorithmic manner without risking the loss of contextual information. General-purpose models and specialized PII models may differ significantly when applied to clinical, financial, educational, governmental, or any other regulated-sector data. Therefore, it is defined as:
+
+\begin{equation}
+    \mathrm{DomainFit}(M_i,d)\in[0,1].
+\end{equation}
+
+For the determination of this value, \textbf{expert evaluation is of vital importance}, either through verifiable algorithmic criteria or through a mixed solution. Table~\ref{tab:domainfit_general} presents a reference scale.
+
+\begin{table}[h!]
+\centering
+\caption{Proposed general scale for domain fit.}
+\label{tab:domainfit_general}
+\begin{tabular}{lc}
+\toprule
+\textbf{Situation} & \textbf{DomainFit} \\
+\midrule
+Model validated in the target domain & 1.00 \\
+General model with domain-specific fine-tuning & 0.90 \\
+General model without fine-tuning, but reasonably applicable & 0.75 \\
+Out-of-domain model & 0.50 \\
+Model not suitable for the domain & 0.25 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+For the healthcare domain, an illustrative scale such as the one presented in Table~\ref{tab:domainfit_health} may be used.
+
+\begin{table}[h!]
+\centering
+\caption{Illustrative example of domain fit in healthcare.}
+\label{tab:domainfit_health}
+\begin{tabular}{lc}
+\toprule
+\textbf{Model} & \textbf{Suggested DomainFit in healthcare} \\
+\midrule
+Presidio with REGEX and NER & 1.00 \\
+Presidio with clinical rules and machine learning components & 0.80--0.90 \\
+OpenMed   & 0.85--0.95 \\
+OpenAI Privacy Filter without clinical fine-tuning & 0.70--0.80 \\
+General DeBERTa trained on privacy & 0.65--0.80 \\
+General GLiNER & 0.50--0.70 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Regulatory adjustment}
+
+When the evaluation is conducted in a domain subject to regulatory obligations, it is necessary to introduce an additional dimension:
+
+\begin{equation}
+    \mathrm{RegulatoryFit}(M_i,d,r)\in[0,1],
+\end{equation}
+
+where $M_i$ is the evaluated model, $d$ the application domain, and $r$ the framework or set of applicable regulatory frameworks. For example:
+
+\begin{equation}
+    r\in\{\mathrm{HIPAA},\mathrm{GDPR},\mathrm{CCPA},\mathrm{Law\ 25.326},\mathrm{EU\ AI\ Act}\}.
+\end{equation}
+
+\paragraph{HIPAA and PHI}
+
+In environments subject to HIPAA or to analogous obligations associated with health information, the model must be penalized if it does not cover relevant identifiers, such as:
+
+\begin{itemize}
+    \item names;
+    \item addresses;
+    \item dates;
+    \item telephone numbers;
+    \item email addresses;
+    \item medical record numbers;
+    \item insurance identifiers;
+    \item device identifiers;
+    \item URL;
+    \item IP addresses;
+    \item biometric identifiers;
+    \item any unique identifier.
+\end{itemize}
+
+The absence of these categories should not be considered merely a technical limitation, but rather a relevant deficiency from both the regulatory and operational perspectives.
+
+\paragraph{GDPR and Law 25.326}
+
+In contexts subject to the General Data Protection Regulation or to Argentine Law 25.326 on Personal Data Protection, criteria such as the following must be considered:
+
+\begin{itemize}
+    \item identifiability;
+    \item minimization;
+    \item pseudonymization;
+    \item re-identification risk;
+    \item sensitive data;
+    \item purpose limitation;
+    \item proportionality.
+\end{itemize}
+
+Models such as Presidio, OpenAI Privacy Filter, DeBERTa, or GLiNER may contribute to PII detection, but they do not by themselves demonstrate anonymization, regulatory compliance, or security. Therefore, their use must be integrated within a broader evaluation framework.
+
+\subsubsection{Penalty for critical false negatives}
+
+In privacy, false negatives are especially relevant because they represent undetected sensitive information. Their severity depends on the domain. In healthcare, for example, failing to detect a name may be serious, but failing to detect a medical record number, a diagnosis, a medication, or an administered dose may be even more critical. Likewise, failing to detect an API key may have greater impact in a cybersecurity domain than in another context.
+
+The aggregate risk of critical false negatives is defined as:
+
+\begin{equation}
+    \mathrm{CriticalFN}(M_i,d)=
+    \sum_{c\in\mathcal{C}_d}
+    \rho_{c,d}\frac{FN_{i,c}}{TP_{i,c}+FN_{i,c}},
+\end{equation}
+
+where $\rho_{c,d}$ represents the relative severity of the false negative for class $c$ in domain $d$, and it is required that:
+
+\begin{equation}
+    \sum_{c\in\mathcal{C}_d}\rho_{c,d}=1.
+\end{equation}
+
+The associated penalty is defined as:
+
+\begin{equation}
+    \mathrm{Penalty}_{FN}(M_i,d)=1-\mathrm{CriticalFN}(M_i,d).
+\end{equation}
+
+This formulation penalizes models with low recall in critical classes, even when they present an acceptable general $F_1$.
+
+\subsubsection{Final score proposal}
+
+A normalized multiplicative index is proposed. Since all dimensions are bounded in $[0,1]$, their product also belongs to that interval. By multiplying it by 100, a percentage scale with direct interpretation is obtained.
+
+The final score is defined as:
+
+\begin{equation}
+
+\begin{aligned}
+    \mathrm{Score}(M_i,d)=&\
+    \mathrm{DetectionScore}(M_i,d)
+    \cdot \mathrm{Coverage}(M_i,d)
+    \cdot \mathrm{DomainFit}(M_i,d) \\
+    &\cdot \mathrm{RegulatoryFit}(M_i,d,r)
+    \cdot \mathrm{Penalty}_{FN}(M_i,d).
+\end{aligned}
+
+\end{equation}
+
+The multiplicative nature of the score implies that moderate variations in one dimension may produce significant changes in the final result. This property is desirable when the objective is to prevent high performance in one dimension from unduly compensating for a critical deficiency in another. For example, a model with excellent overall precision but low coverage of essential regulatory classes should not be considered optimal for a regulated domain.
+
+Nevertheless, the multiplicative formulation requires a careful definition of each dimension. If a regulation does not apply to the evaluated case, the regulatory dimension should not be introduced as zero, since this would artificially nullify the score. In such a case, it must be excluded from the product or defined as neutral through a value equal to one. This decision must be explicitly documented to preserve methodological traceability.
+
+Future work could evaluate a weighted additive formulation or a hybrid scheme that separates strictly algorithmic dimensions from regulatory and architectural dimensions. However, such an approach introduces the problem of assigning weights across dimensions, which may incorporate additional subjectivity and require specific empirical validation for each user or sector.
+
+\subsubsection{Score interpretation}
+
+The percentage score is obtained as:
+
+\begin{equation}
+    \mathrm{Score}_{100}(M_i,d)=100\cdot \mathrm{Score}(M_i,d).
+\end{equation}
+
+Table~\ref{tab:interpretacion_score} proposes an interpretation scale.
+
+\begin{table}[h]
+    \centering
+    \caption{Proposed interpretation of the final score.}
+    \label{tab:interpretacion_score}
+    \renewcommand{\arraystretch}{1.2}
+    \begin{tabular}{ll}
+        \toprule
+        \textbf{Score} & \textbf{Interpretation} \\
+        \midrule
+        0--40 & Not suitable \\
+        40--60 & Suitable only as a baseline or complement \\
+        60--75 & Suitable with mitigations \\
+        75--85 & Operationally suitable \\
+        85--95 & Recommended \\
+        95--100 & Recommended with strong local evidence \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\subsubsection{Response to the initial questions}
+
+Once the evaluation algorithm has been defined, the initial questions may be answered formally.
+
+\paragraph{What is the model score?}
+
+The score of a model $M_i$ in a domain $d$ is obtained through the function:
+
+\begin{equation}
+    \mathrm{Score}_{100}(M_i,d)=100\cdot \mathrm{Score}(M_i,d).
+\end{equation}
+
+This result provides a normalized and interpretable measure of the model’s adequacy to the domain, considering performance, coverage, sectoral fit, regulatory adequacy, infrastructure, and penalties for critical false negatives.
+
+\paragraph{What is the best model for the domain?}
+
+If the evaluation is conducted on the dataset provided by the user or client, and if all candidate models have been applied under comparable conditions, the best model for the domain is defined as:
+
+\begin{equation}
+    M_d^*=
+    \arg\max_{M_i\in\mathcal{M}}
+    \mathrm{Score}(M_i,d).
+\end{equation}
+
+This formulation does not select the model with the highest abstract performance, but rather the model with the highest overall adequacy to the evaluated domain.
+
+\subsection{Risk Index}
+
+For the calculation of risk,  two questions need to be ansewered.
+
+\begin{itemize}
+\item Is there any class, or individual variable, that is failing critically? That is, the component is as high as its weakest variable.
+\item Is the algorithm failing globally? All variables present problems.
+\end{itemize}
+
+It is for this reason that a mixed approach to risk is proposed, considering two separate risks to then combine them.
+
+\subsubsection{Risk 1. Risk by the Weakest Link}
+
+\begin{equation*}
+R_1=\text{Risk}*{WC} = \max*{c} ( \rho_{c,d} \cdot \text{FNrate}_c )
+\end{equation*}
+
+Here, the most vulnerable variable is determined. It may happen that out of a quantity $n$ of variables, there is one in which the algorithm fails completely, which creates a gap in privacy. Clearly, it holds a pessimistic version of the result.
+
+\subsubsection{Risk 2: Residual Multiplicative Risk}
+In this case, what is sought is harmony with the general Score that has been under development. If the score is considered a confidence value, that is why two variables used in the Score calculation are included in the risk metric.
+
+\begin{equation*}
+R_2=\text{Risk}*{Mult} = 1 - ( \text{Penalty}*{FN} \cdot \text{Coverage} )
+\end{equation*}
+
+\subsubsection{Final Risk}
+
+Both magnitudes being defined, it is proposed to
+calculate the risk as:
+
+\begin{equation*}
+R_{\text{final}} = 1 - (1 - R_1) \cdot (1 - R_2)
+\end{equation*}
+
+Making an important clarification: this is not a weighted average, but rather a probabilistic calculation in which both probabilities of occurrence are considered. Under that premise, what is obtained is the union of the cases; the system presents risk if either of the two conditions is met. This formulation allows us to specify some characteristics of the final risk:
+
+\begin{itemize}
+\item The result is always at least the maximum value between $R_1$ and $R_2$.
+\item It is never $>1$.
+\item It does not prioritize either of the two risks.
+\end{itemize}
+
+\subsection{Algorithm}
+
+The implementation of the proposed approach requires the following steps:
+
+\begin{enumerate}
+    \item Define the application domain $d$ and the set of required sensitive classes $\mathcal{C}_d$.
+    \item Determine the set of candidate models $\mathcal{M}$. Modelcard knowledge is mandatory.
+    \item Evaluate each model on a validated dataset $D_d$.
+    \item Calculate $\mathrm{Precision}_{i,c}$, $\mathrm{Recall}_{i,c}$, and $F_{2,i,c}$ by class.
+    \item Estimate $\mathrm{DetectionScore}(M_i,d)$ through criticality weights $w_{c,d}$.
+    \item Calculate taxonomic coverage $\mathrm{Coverage}(M_i,d)$.
+    \item Assign $\mathrm{DomainFit}(M_i,d)$ through expert, algorithmic, or mixed criteria.
+    \item Evaluate $\mathrm{RegulatoryFit}(M_i,d,r)$ according to the applicable regulatory framework.
+    \item Calculate $\mathrm{InfraScore}(M_i,d)$ from latency, memory, deployment, and cost.
+    \item Calculate $\mathrm{Penalty}_{FN}(M_i,d)$ from severity-weighted false negatives.
+    \item Obtain the final score $\mathrm{Score}_{100}(M_i,d)$.
+    \item Select $M_d^*$ as the model with the highest domain-adjusted score.
+\end{enumerate}
+
+\begin{algorithm}[h!]
+\caption{Domain-adjusted model selection}
+\begin{algorithmic}[1]
+\REQUIRE Set of candidate models $\mathcal{M}$, domain $d$, validated dataset $D_d$, taxonomy $\mathcal{C}_d$, and regulatory framework $r$.
+\ENSURE Optimal model $M_d^*$ and scores $\mathrm{Score}_{100}(M_i,d)$.
+\FOR{each model $M_i\in\mathcal{M}$}
+    \STATE Evaluate $M_i$ on $D_d$.
+    \STATE Calculate $\mathrm{Precision}_{i,c}$, $\mathrm{Recall}_{i,c}$, and $F_{2,i,c}$ for each $c\in\mathcal{C}_d}$.
+    \STATE Calculate $\mathrm{DetectionScore}(M_i,d)$.
+    \STATE Calculate $\mathrm{Coverage}(M_i,d)$.
+    \STATE Assign $\mathrm{DomainFit}(M_i,d)$.
+    \STATE Calculate $\mathrm{RegulatoryFit}(M_i,d,r)$.
+    \STATE Calculate $\mathrm{Penalty}_{FN}(M_i,d)$.
+    \STATE Calculate $\mathrm{Score}_{100}(M_i,d)$.
+\ENDFOR
+\STATE $M_d^*\leftarrow \arg\max_{M_i\in\mathcal{M}}\mathrm{Score}(M_i,d)$.
+\RETURN $M_d^*$ and the associated scores.
+\end{algorithmic}
+\end{algorithm}
+
+\section{Implementation Considerations}
+
+Within an applied evaluation framework, the proposed score may be implemented as an independent model-comparison module. The expected output should include, at a minimum:
+
+\begin{itemize}
+    \item identifier of the evaluated model.
+    \item application domain.
+    \item required taxonomy.
+    \item classes covered by the model.
+    \item class-level metrics.
+    \item detection score.
+    \item taxonomic coverage.
+    \item domain fit.
+    \item regulatory fit.
+    \item false negative penalty.
+    \item normalized final score.
+    \item traceable justification of the result.
+\end{itemize}
+
+Likewise, it must be ensured that evaluation conditions are comparable across models: the same dataset, the same target taxonomy, the same entity-normalization policy, the same decision thresholds, and the same severity criteria. Without these conditions, the comparison could introduce methodological biases.
+
+\section{Evaluation}
+
+\subsection{Example case: illustrative calculation for Presidio}
+
+\label{sec:presidio_example}
+
+This section presents an example case for applying the proposed scoring function to a Microsoft Presidio configuration. Unlike a closed classification model, Presidio should be understood as a modular and configurable architecture. Therefore, the evaluated object is not Presidio in the abstract, but a concrete instance of the system, defined by its recognizers, rules, auxiliary models, thresholds, anonymization operators, language, and application domain.
+
+Formally, such an instance is represented as:
+
+\begin{equation}
+M_{\mathrm{Presidio}}^{\theta},
+\end{equation}
+
+where \(\theta\) denotes the effective system configuration:
+
+\begin{equation}
+\theta =
+\{
+\text{recognizers},
+\text{rules},
+\text{NLP model},
+\text{thresholds},
+\text{anonymization operators},
+\text{language},
+\text{domain}
+\}.
+\end{equation}
+
+This implies that the score cannot be assigned to Presidio as a generic tool, but rather to a specific implementation. Two different configurations may produce substantially different results even when they rely on the same technological foundation.
+
+\subsubsection{Example domain}
+
+A healthcare domain is considered, in which the target taxonomy is composed of eleven sensitive classes:
+
+\begin{equation}
+\begin{aligned}
+\mathcal{C}_{\mathrm{health}} =
+\{
+\text{name},
+\text{address},
+\text{phone},
+\text{email},
+\text{DOB},
+\text{medical record number}, \\
+\text{insurance ID},
+\text{clinical site},
+\text{doctor name},
+\text{device ID},
+\text{genetic ID}
+\}.
+\end{aligned}
+\end{equation}
+
+An intermediate Presidio configuration is assumed, composed of general recognizers, local rules, and some recognizers oriented toward the clinical domain. Under this configuration, the system covers eight of the eleven required classes:
+
+\begin{equation}
+\mathrm{Coverage}
+\left(
+M_{\mathrm{Presidio}}^{\theta_h},
+d_{\mathrm{health}}
+\right)
+=
+\frac{8}{11}
+=
+0.7273.
+\end{equation}
+
+Coverage is not complete because certain classes, such as \textit{medical record number}, \textit{insurance ID}, or \textit{genetic ID}, may require custom recognizers, institutional rules, or specific validations depending on the country, organization, or clinical system in use.
+
+\subsubsection{Detection metrics}
+
+For illustrative purposes, it is assumed that the configuration \(M_{\mathrm{Presidio}}^{\theta_h}\) was evaluated on a local healthcare dataset, previously annotated and validated. The evaluation yields the following aggregate values:
+
+\begin{equation}
+\mathrm{Precision}=0.880,
+\qquad
+\mathrm{Recall}=0.810.
+\end{equation}
+
+Since in privacy it is usually more serious to fail to detect sensitive information than to over-redact information, \(F_2\) is used, assigning greater weight to recall:
+
+\begin{equation}
+F_2 =
+5
+\frac{
+\mathrm{Precision}\cdot\mathrm{Recall}
+}{
+4\mathrm{Precision}+\mathrm{Recall}
+}.
+\end{equation}
+
+Substituting the values:
+
+\begin{equation}
+F_2 =
+5
+\frac{
+(0.880)(0.810)
+}{
+4(0.880)+0.810
+}
+=
+0.8231.
+\end{equation}
+
+Therefore:
+
+\begin{equation}
+\mathrm{DetectionScore}
+\left(
+M_{\mathrm{Presidio}}^{\theta_h},
+d_{\mathrm{health}}
+\right)
+=
+0.8231.
+\end{equation}
+
+\subsubsection{Calculation assumptions}
+
+To complete the score calculation, the following values are adopted:
+
+\begin{table}[h!]
+\centering
+\caption{Assumed values for the illustrative calculation of Presidio in a healthcare domain.}
+\label{tab:presidio_health_example}
+\begin{tabular}{lc}
+\toprule
+\textbf{Dimension} & \textbf{Value} \\
+\midrule
+\(\mathrm{DetectionScore}\) & 0.8231 \\
+\(\mathrm{Coverage}\) & 0.7273 \\
+\(\mathrm{DomainFit}\) & 0.8500 \\
+\(\mathrm{RegulatoryFit}\) & 0.8000 \\
+\(\mathrm{Penalty}_{FN}\) & 0.8100 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The value \(\mathrm{DomainFit}=0.8500\) reflects that Presidio, being configurable and extensible through custom recognizers, may adapt reasonably well to the healthcare domain, although not necessarily completely without additional work. The value \(\mathrm{RegulatoryFit}=0.8000\) expresses that the tool may contribute to data minimization, redaction, and exposure-control processes, but does not by itself constitute a guarantee of regulatory compliance. Finally, \(\mathrm{Penalty}_{FN}=0.8100\) is approximated through aggregate recall, under the assumption that a class-differentiated severity matrix is unavailable.
+
+\subsubsection{Final score calculation}
+
+The proposed scoring function is:
+
+\begin{equation}
+\mathrm{Score}
+\left(
+M_{\mathrm{Presidio}}^{\theta_h},
+d_{\mathrm{health}}
+\right)
+=
+\mathrm{DetectionScore}
+\cdot
+\mathrm{Coverage}
+\cdot
+\mathrm{DomainFit}
+\cdot
+\mathrm{RegulatoryFit}
+\cdot
+\mathrm{Penalty}_{FN}.
+\end{equation}
+
+Substituting:
+
+\begin{equation}
+\begin{aligned}
+\mathrm{Score}
+\left(
+M_{\mathrm{Presidio}}^{\theta_h},
+d_{\mathrm{health}}
+\right)
+&=
+(0.82)
+(0.72)
+(0.85)
+(0.80)
+(0.81)
+\\
+&=
+0.32
+\end{aligned}
+\end{equation}
+
+On a percentage scale:
+
+\begin{equation}
+\mathrm{Score}_{100}
+\left(
+M_{\mathrm{Presidio}}^{\theta_h},
+d_{\mathrm{health}}
+\right)
+=
+100
+\cdot
+0.2836
+=
+28.36.
+\end{equation}
+
+\subsubsection{Interpretation}
+
+Under the proposed scale, the obtained result indicates that this intermediate Presidio configuration should not be considered an autonomous solution for a regulated healthcare domain. However, the result does not imply that Presidio lacks technical usefulness. On the contrary, it shows that its value depends strongly on the implemented configuration, taxonomic coverage, the quality of custom recognizers, and local validation.
+
+The main limiting factor in this example is the incomplete coverage of the clinical taxonomy. Although aggregate detection performance is reasonable, the final score is reduced by the absence of critical domain classes. This is consistent with the multiplicative logic of the methodology: a model or system should not receive a high score if it presents relevant deficiencies in any critical dimension.
+
+Consequently, improving the result would require incorporating custom recognizers for clinical identifiers, health insurance, genetic identifiers, and devices, in addition to calibrating thresholds, documenting anonymization rules, evaluating false negatives by class, and maintaining human review for highly sensitive cases.
+
+\section{Conclusion}
+
+This work proposes a formal methodology for selecting, via socoring and risk index, privacy detection models according to their \textit{adequacy to a specific domain}. The main contribution consists in replacing selection based exclusively on aggregate metrics with a multicriteria function that integrates empirical performance, taxonomic coverage, sectoral fit, regulatory adequacy, and penalties for critical false negatives.
+
+The proposal makes it possible to operationally answer two central questions: what is the score of a model in a given domain, and what is the best model for that domain. The approach does not seek to establish a universal hierarchy among models, but rather a contextual, traceable, and auditable methodology for selecting the most suitable model under real privacy,  and regulatory constraints.
+
+
+\appendix
+
+\appendix
+
+\section{Appendix: regulatory and methodological justification of class weights and false-negative penalties}
+
+\label{app:weights_fn_justification}
+
+This appendix provides the regulatory, operational, and methodological rationale for two elements of the proposed \textit{Domain-Adjusted Privacy Detection Score}: 
+
+\begin{enumerate}
+    \item the class-level weighting scheme used in the detection score and in the severity matrix for false negatives; and
+    \item the function designed to penalize critical false negatives.
+\end{enumerate}
+
+The purpose of this appendix is not to claim that regulation directly imposes a unique numerical value for each coefficient. Rather, the proposed weights must be interpreted as a \textit{normalized severity rubric}, informed by legal classifications, de-identification standards, cybersecurity practice, and the operational consequences of undetected sensitive information.
+
+\subsection{Interpretation of the class-weighting scheme}
+
+In the implemented methodology, class-level criticality is represented through a normalized vector of weights:
+
+\begin{equation}
+    \mathbf{w}_d =
+    \left(
+    w_{1,d}, w_{2,d}, \ldots, w_{m,d}
+    \right),
+\end{equation}
+
+where \(w_{c,d}\) measures the relative importance of class \(c\) within domain \(d\), and:
+
+\begin{equation}
+    \sum_{c\in\mathcal{C}_d} w_{c,d}=1.
+\end{equation}
+
+An equivalent structure is used for the false-negative severity vector:
+
+\begin{equation}
+    \boldsymbol{\rho}_d =
+    \left(
+    \rho_{1,d}, \rho_{2,d}, \ldots, \rho_{m,d}
+    \right),
+\end{equation}
+
+with:
+
+\begin{equation}
+    \sum_{c\in\mathcal{C}_d} \rho_{c,d}=1.
+\end{equation}
+
+In the current implementation, both vectors share the same numerical structure. This means that the same domain-specific criticality criterion is used both:
+
+\begin{itemize}
+    \item to determine how strongly a class contributes to the positive detection score; and
+    \item to determine how severely an omission of that class reduces the final score.
+\end{itemize}
+
+The implemented values may be interpreted as arising from an ordinal severity scale:
+
+\begin{equation}
+    s_{c,d}\in\{0,1,2\},
+\end{equation}
+
+followed by normalization:
+
+\begin{equation}
+    w_{c,d}=
+    \frac{s_{c,d}}{\sum_{j\in\mathcal{C}_d}s_{j,d}},
+    \qquad
+    \rho_{c,d}=
+    \frac{s_{c,d}}{\sum_{j\in\mathcal{C}_d}s_{j,d}}.
+\end{equation}
+
+Under this interpretation:
+
+\begin{itemize}
+    \item \(s_{c,d}=2\) denotes high operational or regulatory criticality;
+    \item \(s_{c,d}=1\) denotes relevant but comparatively lower criticality;
+    \item \(s_{c,d}=0\) denotes either exclusion from the current scoring scope or a class considered non-prioritary under the specific evaluation design.
+\end{itemize}
+
+This formulation preserves interpretability, avoids arbitrary non-normalized scales, and allows future recalibration by domain, jurisdiction, or user-specific risk policy.
+
+\subsection{Regulatory basis for positively weighted classes}
+
+The class-weighting matrix is grounded in the principle that sensitive entities do not contribute equally to privacy exposure, re-identification risk, or downstream harm. Several of the classes used in the scoring function appear explicitly in de-identification standards or in security frameworks addressing exposure of regulated or sensitive information.
+
+\subsubsection{Names}
+
+Names are among the clearest direct identifiers. Under the HIPAA Safe Harbor method, names of the subjects of the records and certain associated persons must be removed from protected health information before a dataset can be treated as de-identified \citep{hhs_hipaa_deidentification}. The General Data Protection Regulation also identifies the name of a natural person as a paradigmatic identifier in the definition of personal data \citep{eu_gdpr_2016}.
+
+This supports the assignment of a high severity coefficient to name-related classes. In the present implementation, \texttt{first\_name} and \texttt{last\_name} are scored separately because evaluation is performed at the span level. This design choice reflects the fact that omission of either component may preserve identifying information in the output. Nevertheless, future refinements may consider the use of a consolidated \texttt{person\_name} class when model outputs and evaluation taxonomies permit such aggregation.
+
+\subsubsection{Dates directly associated with individuals}
+
+HIPAA explicitly includes all elements of dates, except year, directly related to an individual, including birth date, admission date, discharge date, and death date, among the identifiers requiring suppression under the Safe Harbor method \citep{hhs_hipaa_deidentification}. Dates are not always identifiers in isolation, but in clinical or administrative documents they can materially increase identifiability when combined with other quasi-identifiers.
+
+This justifies assigning a positive coefficient to the class \texttt{date} in a healthcare-oriented detection setting.
+
+\subsubsection{Medical record numbers and health-plan beneficiary numbers}
+
+Medical record numbers and health-plan beneficiary numbers are explicitly recognized by HIPAA as identifiers that must be removed in Safe Harbor de-identification \citep{hhs_hipaa_deidentification}. These values are generally unique or near-unique within institutional systems and therefore possess strong linkage potential.
+
+Their inclusion as weighted classes in the score is not merely a modeling choice, but a domain requirement when evaluating privacy-preserving detection systems for healthcare documents.
+
+\subsubsection{Certificate and license numbers}
+
+HIPAA also identifies certificate and license numbers as identifiers relevant to de-identification \citep{hhs_hipaa_deidentification}. In clinical workflows, professional registration identifiers may reveal the identity of medical personnel, while in other institutional contexts they may identify licensed individuals or regulated actors.
+
+The corresponding positive weight for \texttt{certificate\_license\_number} is therefore consistent with the methodological objective of penalizing omissions of structured identifiers that may enable direct or indirect identification.
+
+\subsubsection{Card verification values}
+
+The class \texttt{cvv} belongs to a different but complementary family of sensitive data: payment-card authentication data. The PCI Security Standards Council classifies card verification codes or values as \textit{Sensitive Authentication Data}, and explicitly states that they must not be stored after authorization, even when encrypted \citep{pci_cvv_2026}.
+
+Although such data are not PHI in the strict healthcare sense, their presence in clinical-administrative text can produce an immediate exposure of financial authentication information. For that reason, their inclusion in a domain-adjusted privacy detection score is justified when the score is intended to evaluate sensitive information leakage in mixed operational documents rather than PHI alone.
+
+\subsubsection{API keys and credential-like secrets}
+
+The class \texttt{api\_key} represents a secret or credential-like value capable of enabling unauthorized access to systems or services. NIST authentication guidance treats authentication secrets as sensitive values whose disclosure must be prevented \citep{nist_sp800_63b_2025}. CISA has also included API keys among credentials that require urgent remediation when compromise is known or suspected \citep{cisa_ed2402_2026}.
+
+Accordingly, assigning a high severity coefficient to \texttt{api\_key} is justified when the methodology is framed as a broader \textit{sensitive information detection} score rather than a narrowly defined PHI-only metric. The appendix therefore recommends that the paper explicitly state that the evaluated taxonomy may include both personal identifiers and operational secrets when the target use case involves mixed clinical, administrative, and technical records.
+
+\subsection{Classes currently assigned null weight: interpretation and caveats}
+
+The present implementation assigns zero weight to certain classes. This decision should not be interpreted as implying that these entities are universally non-sensitive. Rather, a null coefficient must be read as either:
+
+\begin{enumerate}
+    \item an exclusion from the specific scoring scope of the experimental configuration; or
+    \item a provisional design choice subject to recalibration.
+\end{enumerate}
+
+This distinction is important because some classes currently assigned zero weight have external support for receiving a positive coefficient under broader privacy, fraud, or data-protection criteria.
+
+\subsubsection{Account numbers}
+
+HIPAA includes account numbers among the identifiers requiring suppression under the Safe Harbor method \citep{hhs_hipaa_deidentification}. Therefore, when evaluating documents that combine health information and administrative billing content, the omission of \texttt{account\_number} should not be regarded as immaterial.
+
+From a regulatory and operational perspective, a zero coefficient for this class requires explicit justification. If the intended scope of the experiment includes financial identifiers present in healthcare text, a positive coefficient would be more consistent with the overall methodology.
+
+\subsubsection{Bank routing numbers}
+
+Bank routing numbers are not part of the HIPAA Safe Harbor list. However, payment-security guidance recognizes that checks and related payment documents may contain sensitive combinations of payer name, account number, and bank routing number that can be exploited for fraud \citep{fedpayments_check_fraud_2026}.
+
+Consequently, \texttt{bank\_routing\_number} may reasonably receive a positive coefficient in evaluation settings concerned with broader exposure risk across clinical-administrative documents. A zero coefficient is only defensible where the score is intentionally restricted to a narrower taxonomy centered on healthcare privacy rather than financial data leakage.
+
+\subsubsection{MAC addresses and device-linked identifiers}
+
+The UK Information Commissioner’s Office notes that online identifiers may include device-related values and explicitly lists MAC addresses among examples that may constitute personal data when they can distinguish or profile individuals \citep{ico_identifiers_2026}. Although the identification risk is contextual, this evidence indicates that \texttt{mac\_address} should not be universally treated as non-sensitive.
+
+A null weight for this class can be retained only under a clearly delimited evaluation scope. If the score is extended toward GDPR-style identifiability analysis or network telemetry containing device-linked information, a positive coefficient should be considered.
+
+\subsubsection{Employee identifiers}
+
+The GDPR definition of personal data includes identification numbers as a possible means of identifying a natural person \citep{eu_gdpr_2016}. Employee identifiers can therefore constitute personal data when they enable direct or indirect linkage to a workforce member.
+
+If the evaluation target includes all sensitive information present in a document, \texttt{employee\_id} should be treated as a candidate for positive weighting. If the score focuses solely on patient-related privacy risk, its exclusion must be described as a scope constraint rather than a general claim about lack of sensitivity.
+
+\subsubsection{Occupation}
+
+Occupation is not necessarily identifying in isolation. However, the HHS de-identification guidance explicitly acknowledges that occupational information can become identifying when the role is sufficiently specific, such as a unique position within an institution \citep{hhs_hipaa_deidentification}. For this reason, \texttt{occupation} is best understood as a contextual quasi-identifier.
+
+A zero weight may be reasonable for generic occupations in the current experimental setting, but such a decision should not be generalized across all documents or domains.
+
+\subsection{Methodological justification of the false-negative penalty}
+
+The score introduces a class-sensitive penalty for false negatives:
+
+\begin{equation}
+    \mathrm{CriticalFN}(M_i,d)=
+    \sum_{c\in\mathcal{C}_d}
+    \rho_{c,d}
+    \frac{FN_{i,c}}{TP_{i,c}+FN_{i,c}},
+\end{equation}
+
+followed by:
+
+\begin{equation}
+    \mathrm{Penalty}_{FN}(M_i,d)=
+    1-\mathrm{CriticalFN}(M_i,d).
+\end{equation}
+
+This formulation is directly motivated by the asymmetric structure of error costs in privacy-sensitive detection. In de-identification tasks, a false positive generally produces unnecessary redaction and loss of information utility, whereas a false negative leaves sensitive content exposed. The latter may preserve direct identifiers, maintain re-identification channels, or disclose operational secrets.
+
+The clinical de-identification literature repeatedly stresses that high recall is essential precisely because residual protected health information creates legal and ethical liability. Hartman et al. state that de-identification systems require high sensitivity because publicly releasing text containing PHI creates legal and ethical exposure \citep{hartman_2020}. Earlier work on medical-record de-identification similarly treats recall as the fraction of protected health information successfully identified and emphasizes the operational importance of minimizing false negatives \citep{neamatullah_2008}. More recent analyses continue to describe high recall as a central requirement in automated clinical-note de-identification \citep{abdalla_2025}.
+
+The proposed penalty is also consistent with the general theory of cost-sensitive learning, in which classification errors should not be treated as equally costly when their consequences differ. Elkan formalizes the principle that different misclassification outcomes may require different penalties in order to produce economically and operationally coherent decision rules \citep{elkan_2001}.
+
+\subsection{Equivalent formulation as severity-weighted recall}
+
+The proposed penalty admits a useful mathematical interpretation. Since:
+
+\begin{equation}
+    \mathrm{Recall}_{i,c}
+    =
+    \frac{TP_{i,c}}{TP_{i,c}+FN_{i,c}},
+\end{equation}
+
+it follows that:
+
+\begin{equation}
+    \frac{FN_{i,c}}{TP_{i,c}+FN_{i,c}}
+    =
+    1-\mathrm{Recall}_{i,c}.
+\end{equation}
+
+Therefore:
+
+\begin{equation}
+\begin{aligned}
+    \mathrm{CriticalFN}(M_i,d)
+    &=
+    \sum_{c\in\mathcal{C}_d}
+    \rho_{c,d}
+    \left(
+    1-\mathrm{Recall}_{i,c}
+    \right) \\
+    &=
+    1-
+    \sum_{c\in\mathcal{C}_d}
+    \rho_{c,d}\,
+    \mathrm{Recall}_{i,c},
+\end{aligned}
+\end{equation}
+
+provided that:
+
+\begin{equation}
+    \sum_{c\in\mathcal{C}_d}\rho_{c,d}=1.
+\end{equation}
+
+Hence:
+
+\begin{equation}
+    \mathrm{Penalty}_{FN}(M_i,d)
+    =
+    \sum_{c\in\mathcal{C}_d}
+    \rho_{c,d}\,
+    \mathrm{Recall}_{i,c}.
+\end{equation}
+
+The penalty term can therefore be interpreted exactly as a \textit{severity-weighted recall}. This result is important because it shows that the proposed factor is not an arbitrary external multiplier. Instead, it measures the retained detection capacity of the model after accounting for the relative seriousness of omissions across sensitive classes.
+
+\subsection{Relationship between \(F_2\) and the false-negative penalty}
+
+The methodology already uses \(F_2\) rather than \(F_1\), thereby assigning greater relevance to recall than to precision:
+
+\begin{equation}
+    F_{2,i,c}=
+    5
+    \frac{
+    \mathrm{Precision}_{i,c}\cdot\mathrm{Recall}_{i,c}
+    }{
+    4\,\mathrm{Precision}_{i,c}+\mathrm{Recall}_{i,c}
+    }.
+\end{equation}
+
+The introduction of \(\mathrm{Penalty}_{FN}\) should not be read as a redundant repetition of the same idea. The two components operate at different conceptual levels:
+
+\begin{itemize}
+    \item \(F_2\) evaluates \textit{class-level detection quality}, favoring recall in the precision--recall trade-off;
+    \item \(\mathrm{Penalty}_{FN}\) evaluates \textit{residual domain risk}, discounting the final score according to undetected sensitive entities weighted by their severity.
+\end{itemize}
+
+Accordingly, \(F_2\) expresses performance asymmetry, while the false-negative penalty expresses risk asymmetry. This separation is particularly useful in regulated contexts, because a model may present acceptable aggregate detection metrics while still failing on a small number of highly critical categories.
+
+\subsection{Implications for future calibration}
+
+The present weighting scheme should be understood as an initial, auditable configuration. It is sufficient to operationalize the proposed score and to test its behavior across models, but it is not intended to be immutable. Future calibration may proceed through:
+
+\begin{enumerate}
+    \item sector-specific regulatory matrices;
+    \item expert elicitation;
+    \item empirical studies of disclosure impact;
+    \item sensitivity analysis over the weight vectors \(\mathbf{w}_d\) and \(\boldsymbol{\rho}_d\);
+    \item optimization against domain-level validation objectives.
+\end{enumerate}
+
+Such extensions would make it possible to move from a manually specified severity rubric to a more systematically estimated weighting scheme, while preserving the interpretability and traceability of the current methodology.
+
+\subsection{Conclusion of the appendix}
+
+The class-weighting scheme and the false-negative penalty are consistent with the central premise of the proposed score: models for privacy-sensitive detection should not be evaluated solely through aggregate performance, but through their capacity to detect what matters most in the relevant domain.
+
+The regulatory and technical evidence supports the positive weighting of direct identifiers, healthcare identifiers, sensitive payment authentication data, and secret-like credentials. It also shows that several classes currently assigned null weight may warrant reconsideration or, at minimum, explicit scope justification. Finally, the false-negative penalty possesses a clear mathematical interpretation as severity-weighted recall and is aligned with both de-identification practice and the broader theory of cost-sensitive evaluation.
+
+\end{document}
