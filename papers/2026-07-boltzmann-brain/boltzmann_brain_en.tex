@@ -1,0 +1,1047 @@
+\documentclass[11pt,a4paper]{article}
+
+% Packages
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+% Typography: URW Palatino (Palladio) text + Pazo math + Inconsolata mono.
+% This is the same font stack used by the Qwen technical reports.
+\usepackage{mathpazo}
+\usepackage[scaled=0.95]{inconsolata}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{xcolor}
+\usepackage{fancyhdr}
+\usepackage{enumitem}
+\usepackage{tcolorbox}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning, fit, backgrounds, calc, shapes.geometric}
+\usepackage[margin=1in]{geometry}
+\usepackage[hidelinks]{hyperref}
+
+% Resolve assets/figures whether compiled from the repo root or this folder.
+\graphicspath{{./}{figures/}{../../template/}{template/}}
+
+% Brand header (logo + wordmark on the left, date on the right)
+\definecolor{gaussiadark}{HTML}{323030}
+\definecolor{gaussiaccent}{HTML}{C15A35}
+\definecolor{gaussiasoft}{HTML}{F3ECE7}
+\definecolor{gaussiablue}{HTML}{3A6EA5}
+\newcommand{\paperdate}{July 24, 2026}
+\newcommand{\papersurl}{https://www.gaussia.ai/papers}
+\newcommand{\repourl}{https://github.com/gaussia-labs/papers}
+\newcommand{\hfurl}{https://huggingface.co/gaussia-labs}
+% Header logo (no link, just branding)
+\newcommand{\gaussialogo}{%
+  \raisebox{-0.28\height}{\includegraphics[height=14pt]{logo}}%
+  \hspace{5pt}\textcolor{gaussiadark}{\textbf{\large Gaussia}}%
+}
+% Clickable links shown under the title, Qwen-report style
+\newcommand{\paperlinks}{%
+  \begin{center}
+    \href{\repourl}{%
+      \raisebox{-0.22\height}{\includegraphics[height=11pt]{github}}%
+      \hspace{4pt}\texttt{github.com/gaussia-labs/papers}}\\[4pt]
+    \href{\papersurl}{%
+      \raisebox{-0.26\height}{\includegraphics[height=11pt]{logo}}%
+      \hspace{4pt}\texttt{gaussia.ai/papers}}\\[4pt]
+    \href{\hfurl}{%
+      \raisebox{-0.26\height}{\includegraphics[height=12pt]{hf-logo}}%
+      \hspace{4pt}\texttt{huggingface.co/gaussia-labs}}
+  \end{center}%
+}
+
+\providecommand{\keywords}[1]{%
+  \vspace{0.5em}%
+  \noindent\textbf{Keywords: }#1%
+}
+
+\setlength{\headheight}{18pt}
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\gaussialogo}
+\rhead{\textcolor{gaussiadark}{\paperdate}}
+\renewcommand{\headrulewidth}{0.6pt}
+\rfoot{\thepage}
+
+% ---- Shared callout box ----------------------------------------------------
+\newtcolorbox{callout}[1][]{
+  colback=gaussiasoft, colframe=gaussiaccent,
+  boxrule=0.6pt, arc=2pt, left=6pt, right=6pt, top=5pt, bottom=5pt,
+  fonttitle=\bfseries, #1
+}
+
+% ---- Shared TikZ styles ----------------------------------------------------
+\tikzset{
+  box/.style={draw=gaussiadark, rounded corners=3pt, thick, align=center,
+              font=\small, inner sep=6pt, fill=white},
+  accentbox/.style={box, draw=gaussiaccent, fill=gaussiasoft},
+  bluebox/.style={box, draw=gaussiablue, fill=blue!5},
+  smallbox/.style={box, font=\footnotesize, inner sep=4pt},
+  flow/.style={-{Stealth[length=2.5mm]}, thick, draw=gaussiadark},
+  flowa/.style={-{Stealth[length=2.5mm]}, thick, draw=gaussiaccent},
+  lbl/.style={font=\footnotesize\itshape, text=gaussiadark},
+}
+
+% Metadata
+\title{\textbf{Boltzmann Brain: A Versioned, Distributable, and\\
+Model-Agnostic Knowledge Architecture}}
+\author{
+  Alex Fiorenza \\
+  \texttt{alexfiorenza2012@gmail.com} \\
+  Gaussia
+}
+\date{}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{fancy}
+
+% Repository and website links, shown under the title
+\paperlinks
+
+% The abstract is REQUIRED for every Gaussia paper. Do not remove it.
+\begin{abstract}
+Knowledge produced with large language models (LLMs) tends to become locked
+inside a single provider, agent, or vector store, where it is hard to audit,
+reindex, version, or move. We propose \textbf{Boltzmann Brain}, a portable
+knowledge architecture built on one principle: the brain conserves, validates,
+and retrieves knowledge, while an external and interchangeable LLM processes,
+contextualizes, and uses it. The brain never embeds a model of its own.
+Knowledge is stored as typed, content-addressed blocks organized into five
+memory modules (canonical, episodic, semantic, procedural, and provenance),
+inspired by complementary learning systems and hippocampal indexing rather
+than by literal brain-to-database mappings. Each module bundles its blocks, a
+Merkle DAG that pins the exact composition of a version, and the indices needed
+to query it. We separate three levels of hashes, one for block identity, one
+for the Merkle root of a snapshot, and one for the OCI digest of a distributed
+blob, and show how packaging each module as a separate OCI Artifact yields
+selective installation and incremental updates. Interaction happens through the
+\emph{Boltzmann Protocol}: during ingestion and query the LLM proposes candidate
+blocks and consumes Evidence Bundles, while the protocol governs what is
+committed and returns only verified evidence, never prose. Because the brain is
+portable data addressed by a protocol rather than a deployable service, the same
+snapshot can be read and extended by any conforming client. This first version
+fixes the boundaries and responsibilities of the architecture and leaves
+concrete block schemas, wire formats, and algorithms for later validation.
+\end{abstract}
+
+\keywords{knowledge representation, retrieval-augmented generation, content
+addressing, Merkle DAG, OCI Artifacts, memory systems, LLM agents}
+
+% ===========================================================================
+\section{Introduction}
+\label{sec:intro}
+
+Large language models have made it cheap to \emph{produce} knowledge (notes,
+summaries, extracted facts, procedures), but expensive to \emph{own} it. In
+practice, the knowledge a user accumulates while working with an LLM tends to
+be captured in a form dictated by whichever provider, agent framework, or
+vector database happens to be in use. Embeddings are computed with a specific
+model, chunks are shaped by a specific pipeline, and the resulting store is
+rarely portable, verifiable, or re-interpretable. When the model changes, the
+provider changes, or the indexing strategy changes, the knowledge is often
+effectively lost, or must be rebuilt from scratch.
+
+This paper argues that knowledge should be a \emph{first-class, portable
+artifact} that outlives any particular model or vendor. We present
+\textbf{Boltzmann Brain}, an architecture whose sole responsibility is to
+conserve information, organize it into memories with distinct purposes,
+maintain verifiable versions, and retrieve relevant evidence. Crucially, the
+brain contains no language model of its own. It integrates with whatever LLM
+the user chooses, which interprets sources during ingestion and contextualizes
+results during query. The design is captured by a single guiding idea:
+
+\begin{callout}
+\emph{The brain conserves, validates, and retrieves knowledge. An external LLM
+processes, contextualizes, and uses it.}
+\end{callout}
+
+\paragraph{The responsibility boundary.}
+The brain does not write the final answer. It returns knowledge blocks and
+evidence; an agent, interface, or downstream application decides how to
+contextualize them (Figure~\ref{fig:separation}). This boundary is what keeps
+the architecture independent of any provider: the Boltzmann Protocol governs
+structure, identity, validation, and distribution, while the semantic work
+(reading, extracting concepts, recognizing episodes, proposing procedures, and
+phrasing answers) is delegated to an interchangeable external model.
+
+\paragraph{Contributions.}
+This work makes the following contributions:
+\begin{enumerate}[leftmargin=1.4em]
+  \item A set of design principles and problems (Section~\ref{sec:principles})
+  for portable, verifiable, model-agnostic knowledge.
+  \item A mapping from biological memory principles and classic systems
+  structures to concrete architectural decisions (Section~\ref{sec:inspiration}).
+  \item A five-module memory model (canonical, episodic, semantic,
+  procedural, and provenance; Section~\ref{sec:modules}) together with an
+  internal module anatomy of content-addressed blocks, Merkle DAGs, and indices
+  (Section~\ref{sec:anatomy}).
+  \item A distribution model based on OCI Artifacts that enables selective
+  installation and incremental updates (Section~\ref{sec:distribution}), and a
+  model-agnostic protocol with explicit ingestion and query contracts
+  (Sections~\ref{sec:protocol}--\ref{sec:query}).
+\end{enumerate}
+
+\paragraph{Scope of this version.}
+This document fixes an initial conceptual architecture. It deliberately does
+not close the exact schema of each block, the consolidation algorithm, the
+size of packs, or the concrete index engine. The goal is to establish
+boundaries and responsibilities that later, more concrete work can validate.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[node distance=10mm]
+  \node[accentbox, text width=4.4cm] (brain) {\textbf{Boltzmann Brain}\\[2pt]
+    \footnotesize conserves $\cdot$ validates $\cdot$ retrieves\\[3pt]
+    \scriptsize typed blocks, Merkle DAGs,\\ indices, provenance};
+  \node[bluebox, right=32mm of brain, text width=4.4cm] (llm) {\textbf{External LLM}\\[2pt]
+    \footnotesize processes $\cdot$ contextualizes $\cdot$ uses\\[3pt]
+    \scriptsize interprets sources,\\ phrases the final answer};
+  \draw[flowa] ([yshift=4pt]brain.east) -- node[lbl, above]{Evidence Bundle}
+    ([yshift=4pt]llm.west);
+  \draw[flow] ([yshift=-4pt]llm.west) -- node[lbl, below]{candidate blocks}
+    ([yshift=-4pt]brain.east);
+  \node[smallbox, below=9mm of brain, text width=4.4cm, draw=gaussiadark]
+    (store) {\footnotesize canonical $\cdot$ episodic $\cdot$ semantic\\
+    procedural $\cdot$ provenance};
+  \draw[flow] (brain) -- (store);
+  \node[smallbox, below=9mm of llm, text width=4.4cm, draw=gaussiablue]
+    (user) {\footnotesize user / agent / application};
+  \draw[flow] (llm) -- (user);
+\end{tikzpicture}
+\caption{Separation of responsibilities. The brain owns knowledge, identity,
+and verification; the external LLM owns interpretation and phrasing. The two
+communicate through a stable contract: the LLM sends candidate blocks during
+ingestion and receives Evidence Bundles during query.}
+\label{fig:separation}
+\end{figure}
+
+% ===========================================================================
+\section{Design Principles and Problems}
+\label{sec:principles}
+
+\subsection{Problems this architecture addresses}
+
+Boltzmann Brain is designed to address a cluster of related failures in how
+LLM-era knowledge is currently stored and consumed:
+
+\begin{itemize}[leftmargin=1.4em]
+  \item Preventing knowledge from being trapped inside a particular provider,
+  agent, or vector database.
+  \item Maintaining a source of evidence that allows knowledge to be
+  reindexed and reinterpreted as models and methods evolve.
+  \item Distinguishing concrete experiences, general facts, and procedures,
+  rather than collapsing everything into undifferentiated chunks.
+  \item Updating knowledge without losing history, provenance, or
+  reproducibility.
+  \item Distributing a complete brain or only selected modules.
+  \item Allowing interchangeable external LLMs to query and contribute
+  knowledge through a stable contract.
+\end{itemize}
+
+\subsection{Guiding principles}
+
+Seven principles follow from these problems and constrain every subsequent
+design decision:
+
+\begin{enumerate}[leftmargin=1.6em]
+  \item Knowledge lives in blocks; indices are not the source of truth.
+  \item Original evidence must be preserved; interpretations may change.
+  \item Every version must be identifiable, verifiable, and reconstructible.
+  \item Modules must be distributable and installable selectively.
+  \item The protocol must not embed an LLM of its own nor depend on a specific
+  provider.
+  \item Specialized structures compose; no single index answers every query.
+  \item Queries are declarative and index-agnostic: callers ask for knowledge,
+  and the selection and combination of indices is left to the implementation.
+\end{enumerate}
+
+These principles are intentionally conservative. They privilege durability and
+auditability over convenience, and they treat the LLM as a powerful but
+replaceable interpreter rather than as the system of record.
+
+% ===========================================================================
+\section{Inspirations}
+\label{sec:inspiration}
+
+\subsection{Biology of memory}
+
+The architecture takes \emph{general principles} from neuroscience, not
+literal equivalences between brain regions and databases. The scientific
+literature describes multiple memory systems and an interaction among fast
+learning, stable knowledge, consolidation, associative recall, and adaptive
+forgetting~\cite{kumaran2016cls, goode2018engram, yassa2011pattern,
+knierim2016tracking, rebola2017pattern, nader2009reconsolidation,
+redondo2011tagging, ryan2022forgetting}. Figure~\ref{fig:biology} summarizes
+the translation from biological principles to architectural decisions.
+
+Complementary learning systems (CLS) theory distinguishes a fast,
+hippocampus-associated mechanism from slower, integrative cortical
+learning~\cite{kumaran2016cls}. For Boltzmann Brain this suggests separating
+the \emph{capture of episodes} from \emph{semantic consolidation}. The
+hippocampal indexing theory further motivates a distinction between the index
+that reactivates a memory and the distributed content of that
+memory~\cite{goode2018engram}, a distinction we mirror in our separation of
+indices from knowledge blocks. Pattern separation inspires deduplication, identity
+resolution, and contradiction detection; pattern completion inspires
+recovering a full memory from a partial query through hybrid
+search~\cite{yassa2011pattern, knierim2016tracking, rebola2017pattern}.
+Finally, reconsolidation suggests that retrieving knowledge can open a
+controlled revision, while adaptive forgetting suggests reducing accessibility
+without necessarily destroying the underlying
+evidence~\cite{nader2009reconsolidation, redondo2011tagging,
+ryan2022forgetting}.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[node distance=6mm and 22mm]
+  \node[bluebox, text width=4.2cm] (b1) {\footnotesize Fast vs.\ slow\\ learning (CLS)};
+  \node[bluebox, below=of b1, text width=4.2cm] (b2) {\footnotesize Hippocampal\\ indexing};
+  \node[bluebox, below=of b2, text width=4.2cm] (b3) {\footnotesize Pattern separation\\ \& completion};
+  \node[bluebox, below=of b3, text width=4.2cm] (b4) {\footnotesize Reconsolidation \&\\ adaptive forgetting};
+
+  \node[accentbox, right=of b1, text width=4.6cm] (a1) {\footnotesize Split episodic capture\\ from semantic consolidation};
+  \node[accentbox, right=of b2, text width=4.6cm] (a2) {\footnotesize Indices separate from\\ knowledge blocks};
+  \node[accentbox, right=of b3, text width=4.6cm] (a3) {\footnotesize Dedup, identity resolution,\\ hybrid retrieval};
+  \node[accentbox, right=of b4, text width=4.6cm] (a4) {\footnotesize Controlled revision;\\ supersede without deleting};
+
+  \draw[flowa] (b1) -- (a1);
+  \draw[flowa] (b2) -- (a2);
+  \draw[flowa] (b3) -- (a3);
+  \draw[flowa] (b4) -- (a4);
+  \node[lbl, above=1mm of b1] {Biological principle};
+  \node[lbl, above=1mm of a1] {Architectural decision};
+\end{tikzpicture}
+\caption{Translation of biological memory principles into architectural
+decisions. The mapping is by analogy, not by literal correspondence between
+brain regions and system components.}
+\label{fig:biology}
+\end{figure}
+
+\subsection{Systems structures}
+
+Alongside biology, the architecture reuses well-understood systems structures.
+Table~\ref{tab:systems} lists each one and its contribution.
+
+\begin{table}[h]
+\centering
+\caption{Systems structures and their contribution to Boltzmann Brain.}
+\label{tab:systems}
+\begin{tabularx}{\textwidth}{lX}
+\toprule
+\textbf{Concept} & \textbf{Contribution to Boltzmann Brain} \\
+\midrule
+Content addressing        & The identity of a block derives from its content. \\
+Merkle DAG                & A root identifies the exact composition of a module. \\
+B\textsuperscript{+} tree & Exact lookup, hierarchies, and ordered range scans. \\
+Inverted index            & Lexical search over words and terms. \\
+Vector index              & Approximate retrieval by semantic similarity. \\
+Graph                     & Explicit relations, provenance, associative expansion. \\
+OCI Artifact              & Interoperable packaging and distribution of modules. \\
+Skill / MCP / CLI / API   & Contract for an external LLM to query and ingest. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+% ===========================================================================
+\section{Related Work}
+\label{sec:related}
+
+The industry is already solving pieces of this problem, but no single artifact
+yet integrates a canonical source, typed memories, fine-grained versioning,
+portable indices, modular distribution, and a model-agnostic access protocol.
+Table~\ref{tab:related} positions the most relevant efforts; we then discuss
+them in turn.
+
+\begin{table}[h]
+\centering
+\caption{Related efforts and their distance from Boltzmann Brain.}
+\label{tab:related}
+\begin{tabularx}{\textwidth}{lXX}
+\toprule
+\textbf{Project / standard} & \textbf{What it contributes} & \textbf{Distance from Boltzmann Brain} \\
+\midrule
+Open Knowledge Format (Google, 2026)
+  & Markdown + YAML as a portable, human-readable format for agents.
+  & Formalizes canonical exchange, but defines no access protocol, biological memory model, indices, or compiled distribution. \\
+GBrain
+  & Git repository as a durable registry; hybrid search, graph, and agent access.
+  & Reinforces the independence of knowledge base from agent; its primary distribution follows the Git/repository model. \\
+Microsoft GraphRAG
+  & Extracts entities, relations, communities, and summaries; combines graph and text.
+  & An indexing and retrieval pipeline, not a distributable format for a complete brain. \\
+Cognee
+  & Turns data into chunks, embeddings, nodes, and relations; combines vector and graph.
+  & Provides memory operations and enrichment, but does not define the proposed OCI/Merkle bundle. \\
+MCP
+  & Client--server standard for tools, resources, and prompts.
+  & A consumption interface; it defines neither storage nor versioning. \\
+OCI / ORAS
+  & Content-addressed artifacts, manifests, blobs, and registries.
+  & Solves distribution; Boltzmann adds module semantics and an internal Merkle. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The Open Knowledge Format (OKF) formalizes the knowledge-wiki pattern through
+Markdown and YAML, emphasizing independence between producers and
+consumers~\cite{okf2026}. GBrain separates durable knowledge from agent
+behavior and offers interchangeable engines and agent
+integration~\cite{gbrain_brain_memory, gbrain_two_repo, gbrain_pluggable}.
+GraphRAG and Cognee illustrate the convergence toward hybrid representations
+that mix text, vectors, and graphs~\cite{graphrag_indexing, graphrag_query,
+cognee_concepts, cognee_cognify}. MCP standardizes how AI applications connect
+to external resources and tools~\cite{mcp2024}. Finally, the OCI ecosystem
+provides content-addressed manifests, descriptors, and blobs whose structure
+is itself an external Merkle DAG~\cite{oci_image_manifest, oci_descriptor,
+oras_artifacts}.
+
+Boltzmann Brain is complementary rather than competing with these efforts. It
+can consume OKF-style canonical sources, borrow hybrid retrieval ideas from
+GraphRAG and Cognee, expose an MCP interface, and ride on OCI for
+distribution, while contributing the missing piece: a versioned, typed,
+model-agnostic \emph{bundle} whose modules can be installed and updated
+selectively.
+
+% ===========================================================================
+\section{Knowledge Modules}
+\label{sec:modules}
+
+The brain's OCI Artifact can contain five logical modules. Each module is
+installable as an independent physical unit and contains blocks, a Merkle DAG,
+and the indices needed for query. Table~\ref{tab:modules} names each module by
+the question it answers.
+
+\begin{table}[h]
+\centering
+\caption{The five memory modules, illustrated with a university brain.}
+\label{tab:modules}
+\begin{tabularx}{\textwidth}{lXX}
+\toprule
+\textbf{Module} & \textbf{Question it answers} & \textbf{Examples} \\
+\midrule
+Canonical    & What material was observed?        & Notes, books, PDFs, lectures, code, datasets. \\
+Episodic     & What happened in a concrete context? & Class of May 14, an error in an exercise, a professor's correction. \\
+Semantic     & What general knowledge was consolidated? & Definitions, formulas, facts, relations. \\
+Procedural   & How is a task performed?           & Solving an integral, computing Fourier coefficients. \\
+Provenance   & Where did it come from and how was it transformed? & Page, source, pipeline, model, validator, date. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\paragraph{Canonical module.}
+Preserves evidence. It may include original files and normalized
+representations, always maintaining a verifiable path back to the origin. It
+does not automatically declare a statement true: it declares that a source
+\emph{contains} certain information.
+
+\paragraph{Episodic module.}
+Records events and experiences with time, context, participants, outcome, and
+evidence. It is naturally append-only: corrections generate new episodes or
+supersession relations rather than in-place edits.
+
+\paragraph{Semantic module.}
+Holds consolidated general knowledge: concepts, formulas, facts, relations, and
+constraints. A Fourier-series formula belongs primarily here, linked to its
+canonical sources.
+
+\paragraph{Procedural module.}
+Represents action sequences, conditions, decisions, alternative paths, and
+success criteria, for example how to obtain the Fourier coefficients of a
+given function.
+
+\paragraph{Provenance module.}
+Connects derived blocks to evidence, transformations, and tool versions. It is
+key to answering what must be recomputed when a source changes.
+
+% ===========================================================================
+\section{Anatomy of a Module}
+\label{sec:anatomy}
+
+A module carries three responsibilities that coexist in the same physical unit
+(Figure~\ref{fig:anatomy}): \emph{blocks} contain knowledge; the \emph{Merkle
+DAG} defines which blocks form a version; \emph{indices} make it possible to
+find blocks without scanning all of them.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[node distance=7mm and 18mm]
+  % Blocks
+  \node[smallbox] (k1) {\texttt{K1}};
+  \node[smallbox, below=4mm of k1] (k2) {\texttt{K2}};
+  \node[smallbox, below=4mm of k2] (k3) {\texttt{K3}};
+  \node[draw=gaussiadark, rounded corners=3pt, thick, fit=(k1)(k2)(k3),
+        inner sep=8pt, label={[lbl]above:Knowledge blocks}] (blocks) {};
+
+  % Merkle DAG
+  \node[accentbox, right=of blocks] (root) {\texttt{root v2}};
+  \node[lbl, above=1mm of root] {Merkle DAG};
+  \draw[flowa] (root) -- (k1);
+  \draw[flowa] (root) -- (k2);
+  \draw[flowa] (root) -- (k3);
+
+  % Indices
+  \node[bluebox, right=of root, text width=3.5cm] (idx)
+    {\footnotesize hash map $\cdot$ B\textsuperscript{+} tree\\
+     inverted $\cdot$ vector $\cdot$ graph};
+  \node[lbl, above=1mm of idx] {Indices (derived)};
+
+  % Indices are derived from the blocks: route the arrow below the root box
+  \draw[flow, dashed] (blocks.south) -- ++(0,-7mm) -| (idx.south);
+  \node[lbl] at ($(blocks.south)!0.5!(idx.south) - (0,10.5mm)$)
+    {derived from blocks};
+\end{tikzpicture}
+\caption{Blocks, a Merkle DAG, and indices coexist within the same module. The
+Merkle root pins the exact set of blocks that make up a version; indices are
+derived and can be rebuilt from the blocks.}
+\label{fig:anatomy}
+\end{figure}
+
+\subsection{Knowledge blocks}
+
+A block is a logical unit of knowledge with a deterministic serialization. It
+may be an episode, a concept, a fact, a relation, a procedure, or a canonical
+fragment. Its identifier is computed from its content:
+\begin{equation}
+  \texttt{block\_id} = \mathrm{SHA\text{-}256}\bigl(\texttt{canonical\_serialization(block)}\bigr).
+\end{equation}
+If the content changes, a new block is born. The previous one may be kept for
+history, audit, or rollback.
+
+\subsection{Merkle DAG}
+
+On their own, blocks are just a bag of content-addressed units: each is
+addressable by its hash, but nothing names, verifies, or diffs a whole
+\emph{version} of the module. The Merkle DAG solves exactly this. It stores no
+meaning by itself; it maintains references by hash and produces a single root
+that commits to the exact set and structure of blocks in a version. That root
+\emph{is} the identity of the version, and it is what makes Principle~3
+(identifiable, verifiable, and reconstructible versions) concrete.
+
+\paragraph{How it works.}
+The leaves of the DAG are \texttt{block\_id}s (content hashes); each internal
+node hashes the hashes of its children; the root hashes down to everything
+below it. Changing any block changes its hash, which changes every ancestor up
+to the root. Three operations follow directly. \emph{Integrity} is checked by
+recomputing hashes from the leaves up and comparing the root. \emph{Membership}
+of a single block is proven with the sibling hashes along its path to the root
+(a Merkle proof of size $O(\log n)$), without downloading the rest of the
+module. \emph{Differencing} two versions compares roots top-down and descends
+only where child hashes differ, so the cost is proportional to what changed,
+not to the size of the module.
+
+\paragraph{Why a DAG rather than a tree.}
+Because blocks are shared across versions. When a new version reuses unchanged
+blocks, their subtrees are shared by hash instead of duplicated, so a node may
+be referenced by more than one root; the structure is therefore a directed
+acyclic graph, as in Git's object store. This structural sharing is what makes
+incremental updates cheap (Section~\ref{sec:distribution}): a new version adds
+only the changed blocks and a new root, and reuses everything else by
+reference.
+
+\begin{callout}[title=Example]
+\texttt{semantic-root v1} contains \texttt{K1}, \texttt{K2}, and \texttt{K3}.
+If \texttt{K2} is corrected, a new \texttt{K2$'$} is created and
+\texttt{semantic-root v2} references \texttt{K1}, \texttt{K2$'$}, and
+\texttt{K3}. \texttt{K2} is never modified in place, and \texttt{K1} and
+\texttt{K3} are shared between the two roots (Figure~\ref{fig:merkle}).
+\end{callout}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[node distance=7mm and 11mm]
+  % leaves
+  \node[smallbox, fill=gaussiasoft, draw=gaussiaccent] (k1) {\texttt{K1}};
+  \node[smallbox, right=of k1] (k2) {\texttt{K2}};
+  \node[smallbox, right=of k2] (k2p) {\texttt{K2$'$}};
+  \node[smallbox, right=of k2p, fill=gaussiasoft, draw=gaussiaccent] (k3) {\texttt{K3}};
+  \node[lbl, below=1mm of k1] {shared};
+  \node[lbl, below=1mm of k3] {shared};
+  % roots
+  \node[accentbox, above=13mm of k1] (v1) {\texttt{root v1}};
+  \node[accentbox, above=13mm of k3] (v2) {\texttt{root v2}};
+  % v1 edges (dark)
+  \draw[flow] (v1) -- (k1);
+  \draw[flow] (v1) -- (k2);
+  \draw[flow] (v1) -- (k3);
+  % v2 edges (accent)
+  \draw[flowa] (v2) -- (k1);
+  \draw[flowa] (v2) -- (k2p);
+  \draw[flowa] (v2) -- (k3);
+\end{tikzpicture}
+\caption{Structural sharing in the internal Merkle DAG. Correcting \texttt{K2}
+into \texttt{K2$'$} yields a new root \texttt{v2} that reuses \texttt{K1} and
+\texttt{K3} by hash; only the changed block and the new root are added. Solid
+dark edges belong to \texttt{v1}, accent edges to \texttt{v2}.}
+\label{fig:merkle}
+\end{figure}
+
+\paragraph{Two Merkle DAGs.}
+It is worth separating the \emph{internal} Merkle DAG described here, which
+versions the blocks inside a module, from the \emph{external} Merkle DAG that
+OCI itself forms over manifests, descriptors, and blobs to version whole
+modules (Section~\ref{sec:distribution}, Figure~\ref{fig:oci}). The same idea
+is applied at two levels: blocks within a module, and modules within a brain.
+
+\paragraph{Storage-independent identity.}
+Because the root depends only on the blocks and their structure, it is a
+canonical identity of a knowledge state, independent of how that state is stored
+or transported. Two parties that assembled the same blocks obtain the same root
+and can verify they hold identical knowledge; the OCI digest, by contrast,
+identifies a particular physical file or manifest.
+
+\subsection{Indices}
+
+Indices are derived: they can be rebuilt from the blocks. They may travel
+inside the same module so that each consumer need not recompute them, but they
+never replace the content. Table~\ref{tab:indices} lists the indices and their
+roles.
+
+\begin{table}[h]
+\centering
+\caption{Indices, their typical queries, and their role.}
+\label{tab:indices}
+\begin{tabularx}{\textwidth}{lXl}
+\toprule
+\textbf{Index} & \textbf{Typical query} & \textbf{Role} \\
+\midrule
+Hash map                   & Get exactly \texttt{sha256:ABC}.               & Immediate physical resolution. \\
+B\textsuperscript{+} tree  & Episodes between two dates; concept by ID.     & Ordered keys and range scans. \\
+Inverted                   & Blocks containing ``Fourier''.                 & Lexical matching. \\
+Vector                     & ``Decompose a periodic function into sines''.  & Semantic similarity. \\
+Graph                      & Related concepts, evidence, dependencies.      & Associative traversal. \\
+Bitmap / facets            & \texttt{semantic AND subject=signals AND current}. & Efficient filter intersection. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Whether an index travels inside the module or is rebuilt on installation depends
+on whether it can be regenerated without a model. Structural indices (hash map,
+B\textsuperscript{+} tree, inverted, bitmap, and, when relations live on the
+blocks, the graph) are deterministic functions of the blocks and can be rebuilt
+cheaply by any client. The vector index is the exception: rebuilding it requires
+an embedding model, which a model-agnostic client does not carry. The vector
+index therefore travels with the module and records the embedding model and
+version that produced it, so that consumers can reproduce or compare it. This
+keeps the blocks as the single source of truth while acknowledging that one
+derived structure cannot be regenerated in isolation.
+
+This separation has a representational reading. A block carries meaning in two
+portable, \emph{symbolic} forms: its text and its explicit relations to other
+blocks, the edges that in aggregate form the knowledge graph. Learned,
+\emph{sub-symbolic} representations (embeddings) are never stored in the block;
+they live in the vector index as derived, model-tagged views. Operating
+mathematically on concepts, such as vector arithmetic or steering, happens
+inside the external LLM in its own representation space, not in the brain. The
+brain thus owns durable symbolic knowledge and borrows the operational vector
+space from whichever model queries it. This also clarifies a naming
+coincidence: the \emph{semantic} module denotes general, consolidated knowledge
+(as opposed to episodic memory), not an embedding-based representation.
+
+\subsection{Three levels of hashes}
+
+A recurring source of confusion is that the same cryptographic algorithm is
+used for three different kinds of identity. Table~\ref{tab:hashes} separates
+them.
+
+\begin{table}[h]
+\centering
+\caption{Three levels of hashes.}
+\label{tab:hashes}
+\begin{tabularx}{\textwidth}{lXl}
+\toprule
+\textbf{Level} & \textbf{What it identifies} & \textbf{Example} \\
+\midrule
+Block hash  & A logical unit of knowledge.          & \texttt{sha256:FOURIER\_CONCEPT} \\
+Merkle root & The logical composition of a module.  & \texttt{sha256:SEMANTIC\_ROOT\_V7} \\
+OCI digest  & The published physical blob or manifest. & \texttt{sha256:OCI\_MODULE\_BLOB} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+These values may use the same algorithm, but they do not represent the same
+thing. The block hash is \emph{knowledge identity}; the Merkle root is the
+identity of a \emph{logical snapshot}; the OCI digest is the identity of a
+transportable \emph{file or manifest}.
+
+% ===========================================================================
+\section{Distribution with OCI Artifacts}
+\label{sec:distribution}
+
+OCI is a standard for content-addressed manifests, descriptors, and blobs. A
+compatible registry stores the blobs and allows referencing them by tag or
+digest; the specification organizes its components as an external Merkle DAG of
+descriptors~\cite{oci_image_manifest, oci_descriptor, oras_artifacts}.
+Figure~\ref{fig:oci} shows how OCI distributes modules while the internal
+Merkle versions the blocks within each module.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[node distance=6mm and 16mm]
+  \node[bluebox, text width=2.9cm] (can) {\footnotesize canonical\\ \texttt{sha256:AAA}};
+  \node[bluebox, above=6mm of can, text width=2.9cm] (sem) {\footnotesize semantic\\ \texttt{sha256:CCC2}};
+  \node[bluebox, below=6mm of can, text width=2.9cm] (epi) {\footnotesize episodic\\ \texttt{sha256:BBB}};
+  \node[accentbox, left=24mm of can, text width=3.2cm] (manifest)
+    {\textbf{OCI manifest}\\ \scriptsize \texttt{brain:v8}};
+  \node[lbl, above=1mm of manifest] {external Merkle (descriptors)};
+  \draw[flowa] (manifest.east) -- (sem.west);
+  \draw[flowa] (manifest.east) -- (can.west);
+  \draw[flowa] (manifest.east) -- (epi.west);
+
+  \node[smallbox, right=32mm of sem, text width=3.2cm] (merkle)
+    {\footnotesize internal Merkle\\ \texttt{K1, K2$'$, K3}};
+  \draw[flow, dashed] (sem.east) -- node[lbl, above, midway]{versions blocks}
+    (merkle.west);
+\end{tikzpicture}
+\caption{OCI distributes modules as separate blobs referenced by a small
+manifest; inside each module, an internal Merkle DAG versions the individual
+knowledge blocks.}
+\label{fig:oci}
+\end{figure}
+
+\subsection{Complete brain}
+
+A brain can be published as an OCI Artifact that references one blob per
+module:
+\begin{verbatim}
+monotributo-brain:v3
+  canonical  -> sha256:AAA
+  episodic   -> sha256:BBB
+  semantic   -> sha256:CCC
+  procedural -> sha256:DDD
+  provenance -> sha256:EEE
+\end{verbatim}
+The OCI manifest is small. Downloading the manifest does not imply downloading
+all modules.
+
+\subsection{Selective installation}
+
+To install only the episodic module, the client resolves the descriptor marked
+as \texttt{episodic} and downloads \texttt{sha256:BBB}. It does not need to
+download \texttt{canonical}, \texttt{semantic}, or \texttt{procedural}. It then
+opens the episodic Merkle DAG and its local indices.
+
+\begin{callout}[title=Necessary condition]
+Selection is only efficient if each module is a separate OCI blob or artifact.
+If everything is mixed into a single file, the whole file must be downloaded.
+\end{callout}
+
+\subsection{Incremental update}
+
+If only the semantic module changes, the new manifest can reuse the digests of
+the remaining modules. The consumer downloads only the new semantic blob;
+inside it, the Merkle root reveals which logical blocks changed.
+
+\begin{table}[h]
+\centering
+\caption{An incremental update touches only the changed module's digest.}
+\label{tab:incremental}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Version} & \textbf{Canonical} & \textbf{Episodic} & \textbf{Semantic} & \textbf{Procedural} \\
+\midrule
+v7 & AAA & BBB & CCC  & DDD \\
+v8 & AAA & BBB & CCC2 & DDD \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+OCI contributes storage, registry authentication, transport, digest-based
+deduplication, and tags. Boltzmann Brain contributes the meaning of the
+modules, the blocks inside them, and their query contract.
+
+% ===========================================================================
+\section{The Boltzmann Protocol}
+\label{sec:protocol}
+
+An installed OCI Artifact is passive data. The \emph{Boltzmann Protocol} is the
+contract through which any conforming client interacts with a brain, along two
+paths, query and ingestion. Boltzmann Brain is therefore delivered as a
+protocol rather than as a deployable service or container image: the brain is
+portable data, and any client that speaks the protocol can read and extend it.
+The protocol includes no LLM of its own; it governs structure, identity,
+validation, indices, snapshots, and distribution. Concretely, it defines
+operations to:
+
+\begin{itemize}[leftmargin=1.4em]
+  \item Discover installed modules, versions, and Merkle roots.
+  \item Open B\textsuperscript{+}, lexical, vector, and graph indices.
+  \item Resolve a \texttt{block\_id} to its physical location and verify its hash.
+  \item Register canonical sources, provenance, and \texttt{derived\_from} relations.
+  \item Define processing tasks and output schemas for an external LLM.
+  \item Validate candidate blocks before they are incorporated into the brain.
+  \item Update Merkle DAGs, indices, and snapshots.
+  \item Publish new versions as OCI Artifacts.
+  \item Be exposed through a skill, MCP, CLI, or API.
+\end{itemize}
+
+Because these are protocol operations rather than a bundled engine, they can be
+implemented independently and in any language, and the brain never depends on a
+particular process being kept running.
+
+\subsection{The boundary between the protocol and the external LLM}
+
+The protocol defines which memory types exist and which schema each block must
+satisfy. The external LLM performs the semantic operations: reading,
+interpreting, extracting concepts, recognizing episodes, proposing procedures,
+and contextualizing results. \emph{The LLM proposes; the protocol governs what
+is stored.}
+
+This boundary keeps the brain provider-independent. The same snapshot can be
+used with a commercial service, a development agent, or a local model, as long
+as the client implements the Boltzmann Protocol. Trust does not rest on a
+privileged service: because every block, snapshot, and module is addressed by
+its hash, any client can verify integrity independently of who produced it.
+
+\begin{callout}[title=Design rule]
+The LLM never writes directly to the Merkle DAGs or to the indices.
+\end{callout}
+
+% ===========================================================================
+\section{Ingestion via an External LLM}
+\label{sec:ingestion}
+
+Ingestion separates the preservation of a source from its interpretation
+(Figure~\ref{fig:ingestion}). First the original is registered
+deterministically; then the protocol delegates semantic processing to the
+user's LLM.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[node distance=8mm and 15mm]
+  \node[smallbox] (src) {source\\ (PDF, code, \dots)};
+  \node[accentbox, right=of src] (reg) {canonical\\ registration};
+  \node[bluebox, right=of reg] (task) {processing\\ task + schema};
+  \node[bluebox, below=10mm of task] (llm) {external LLM\\ proposes blocks};
+  \node[accentbox, left=of llm] (val) {validate \&\\ commit};
+  \node[smallbox, left=of val] (snap) {new snapshot\\ / OCI version};
+
+  \draw[flow] (src) -- (reg);
+  \draw[flow] (reg) -- (task);
+  \draw[flow] (task) -- (llm);
+  \draw[flow] (llm) -- (val);
+  \draw[flow] (val) -- (snap);
+\end{tikzpicture}
+\caption{The brain conserves and validates; the external LLM interprets and
+proposes blocks. Only validated candidates are committed and versioned.}
+\label{fig:ingestion}
+\end{figure}
+
+\subsection{Canonical registration}
+
+\begin{enumerate}[leftmargin=1.6em]
+  \item The user provides a PDF, text, repository, conversation, image, or
+  other source.
+  \item The LLM invokes the \texttt{brain.ingest} operation through the
+  available skill or adapter.
+  \item The format is validated, its SHA-256 computed, and exact duplicates
+  detected.
+  \item The original is stored as an immutable canonical block.
+  \item The protocol records who incorporated it, when, from where, and under
+  what license or policy.
+  \item The canonical Merkle root changes and a new snapshot becomes
+  available, even though no semantic interpretation exists yet.
+\end{enumerate}
+
+Registering a source does not declare it true. The canonical module asserts
+that the evidence was incorporated and preserved.
+
+\subsection{Processing task}
+
+After canonical registration, the protocol returns a structured task to the
+LLM. The task identifies the source, the instructions, the allowed memory
+types, the required references, and the exact output schema:
+\begin{verbatim}
+{
+  "operation": "extract_knowledge",
+  "source": "sha256:PDF123",
+  "allowed_memory_types": ["episodic", "semantic", "procedural"],
+  "requirements": ["cite source ranges", "do not invent"],
+  "output_schema": "boltzmann.candidates/v1"
+}
+\end{verbatim}
+The LLM reads the source and returns typed candidate blocks. A document may
+produce semantic and procedural memory without producing episodic memory; the
+classification depends on what the source actually contains.
+
+\subsection{Validation and commit}
+
+Results from the LLM do not enter automatically. The protocol checks schema,
+references, pages, types, duplicates, relations, and basic contradictions.
+Candidates may end up \texttt{VALIDATED}, \texttt{PENDING\_REVIEW},
+\texttt{REJECTED}, or \texttt{CONTRADICTED}. For each accepted block, the
+protocol prescribes the following steps:
+
+\begin{enumerate}[leftmargin=1.6em]
+  \item Serializes the block canonically.
+  \item Computes its \texttt{block\_id} by hashing.
+  \item Stores the block as an immutable object.
+  \item Connects it to the source via provenance.
+  \item Incorporates it into the episodic, semantic, or procedural Merkle DAG.
+  \item Updates B\textsuperscript{+} trees, lexical, vector, and graph indices
+  as appropriate.
+  \item Creates a new snapshot and, when published, a new OCI version.
+\end{enumerate}
+
+% ===========================================================================
+\section{Query via an External LLM}
+\label{sec:query}
+
+For now, Boltzmann Brain is conceived as a medium for LLMs. The user converses
+with their usual LLM; a skill or adapter lets that LLM query the brain through
+the protocol. The brain returns raw or semi-raw knowledge, and the LLM turns it
+into an answer appropriate for the task (Figure~\ref{fig:query}).
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[node distance=8mm and 16mm]
+  \node[bluebox] (user) {user\\ question};
+  \node[bluebox, right=of user] (llm) {external LLM\\ \texttt{brain.search}};
+  \node[accentbox, right=of llm] (rt) {protocol\\ hybrid retrieval};
+  \node[smallbox, below=10mm of rt, text width=3.4cm]
+    (idx) {\footnotesize B\textsuperscript{+} $\cdot$ lexical\\ vector $\cdot$ graph};
+  \node[accentbox, below=10mm of llm] (eb) {Evidence\\ Bundle};
+
+  \draw[flow] (user) -- (llm);
+  \draw[flow] (llm) -- (rt);
+  \draw[flow] (rt) -- (idx);
+  \draw[flow] (idx) -- (eb);
+  \draw[flowa] (eb) -- (llm);
+\end{tikzpicture}
+\caption{The external LLM queries the brain and contextualizes the returned
+Evidence Bundle. The protocol combines indices, verifies hashes, and returns
+data rather than prose.}
+\label{fig:query}
+\end{figure}
+
+\subsection{Query flow}
+
+\begin{enumerate}[leftmargin=1.6em]
+  \item The user asks the external LLM a question.
+  \item The LLM interprets the intent and calls \texttt{brain.search} with the
+  query and optional filters.
+  \item The protocol combines B\textsuperscript{+} trees, lexical search,
+  vectors, and graph.
+  \item Knowledge blocks and their canonical sources are retrieved.
+  \item The protocol verifies hashes and membership in the installed snapshot.
+  \item An Evidence Bundle is returned.
+  \item The LLM explains, summarizes, compares, or uses the evidence.
+\end{enumerate}
+
+\subsection{Query planning and guarantees}
+
+Step three above hides a query planner. By Principle~7 a query is declarative:
+the caller expresses intent (a query, optional filters over memory type,
+subject, or recency, and optional hints such as a retrieval mode or a result
+limit) and never names a physical index. Choosing which indices to use, and how
+to combine them, is the responsibility of a conforming implementation, in the
+same way that the SQL standard defines a query language and its semantics while
+each database ships its own optimizer. Selection follows the shape of the
+query: exact identifiers resolve through the hash map, ordered or range
+predicates through the B\textsuperscript{+} tree, term matches through the
+inverted index, natural-language intent through the vector index, neighborhood
+and traversal through the graph, and categorical filters through bitmaps. In
+practice retrieval is hybrid: filters narrow a candidate set, lexical and
+vector search generate candidates in parallel, their rankings are fused, the
+graph expands from the strongest hits, and the hash map resolves and verifies
+each result.
+
+The protocol fixes the contract and the invariants, not the algorithm. A
+conforming implementation must return knowledge blocks with their provenance
+and a retrieval score, never prose; every returned block must be verified
+against the installed snapshot by hash and membership; and no single index may
+be treated as authoritative. The fusion method, ranking weights, graph
+expansion depth, and any adaptive intent classification are deliberately left
+to the implementation. A consequence worth stating explicitly is that the
+protocol guarantees \emph{verifiability, not identical ranking}: two conforming
+implementations may return the same verifiable set of blocks in a different
+order, because vector search is approximate and ranking is tunable.
+
+\subsection{Evidence Bundle}
+
+The brain's result is not a written answer. It is a data contract that may
+include matching blocks, content, memory type, relations, sources, retrieval
+score, block IDs, and verification status:
+\begin{verbatim}
+{
+  "matches": [{
+    "block_id": "sha256:CONCEPT1",
+    "memory_type": "semantic",
+    "content": "<serialized knowledge block content>",
+    "source": {"block_id": "sha256:PDF123", "page": 147},
+    "verified": true
+  }]
+}
+\end{verbatim}
+The consumer receives block identities, content, memory type, sources, and
+verification status, and remains free to explain, summarize, compare, or reuse
+the evidence. Those transformations happen outside the brain.
+
+% ===========================================================================
+\section{Knowledge Lifecycle}
+\label{sec:lifecycle}
+
+The full lifecycle ties the previous sections together:
+
+\begin{enumerate}[leftmargin=1.6em]
+  \item \textbf{Source:} the user provides information via their LLM and a skill.
+  \item \textbf{Canonical registration:} the protocol preserves the original,
+  computes its hash, and records provenance.
+  \item \textbf{Delegation:} the protocol returns a task and a processing schema.
+  \item \textbf{Interpretation:} the LLM proposes episodic, semantic, and
+  procedural blocks and relations.
+  \item \textbf{Validation:} the protocol checks structure, references,
+  duplicates, and policies.
+  \item \textbf{Commit:} accepted candidates receive hashes and are stored as
+  immutable blocks.
+  \item \textbf{Indexing:} B\textsuperscript{+} trees, lexical search,
+  vectors, and graph are updated.
+  \item \textbf{Versioning:} the Merkle roots of the affected modules change.
+  \item \textbf{Publication:} OCI distributes only the modified physical modules.
+  \item \textbf{Query:} the LLM obtains Evidence Bundles and transforms them
+  for the user.
+  \item \textbf{Reconsolidation:} new evidence or corrections generate later
+  candidates and snapshots.
+  \item \textbf{Adaptive forgetting:} obsolete content can become superseded or
+  lose priority without destroying the audit trail.
+\end{enumerate}
+
+The canonical, episodic, semantic, procedural, and provenance memories remain
+at the center of the architecture. The change consists solely in decoupling
+cognitive processing: the protocol organizes and governs; the external LLM
+interprets and contextualizes.
+
+% ===========================================================================
+\section{Conclusion and Future Work}
+\label{sec:conclusion}
+
+We presented Boltzmann Brain, a conceptual architecture for portable,
+verifiable, and model-agnostic knowledge. Its core commitment is a clean
+separation of concerns: the brain conserves, validates, and retrieves, while an
+external, interchangeable LLM interprets and contextualizes. From this
+commitment follow the five-module memory model, the content-addressed blocks
+versioned by Merkle DAGs, the derived indices, the three levels of hashes, and
+a distribution model in which OCI Artifacts enable selective installation and
+incremental updates.
+
+This version deliberately fixes boundaries and responsibilities rather than
+implementations. Concrete block schemas, wire formats, and algorithms remain to
+be validated: the exact block schema per memory type, the deterministic
+serialization used for \texttt{block\_id}, the consolidation and
+contradiction-detection algorithms, the pack sizing and index engine choices,
+and the precise shape of the ingestion and query operations exposed through
+skills, MCP, CLI, or API. We also see promising work in formalizing
+supersession and adaptive forgetting so that accessibility can decay without
+compromising auditability. Validating these pieces against real, multi-source
+brains is the natural next step.
+
+% ===========================================================================
+\bibliographystyle{plainnat}
+\bibliography{boltzmann_brain_en}
+
+\end{document}
