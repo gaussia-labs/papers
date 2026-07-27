@@ -86,6 +86,16 @@
   lbl/.style={font=\footnotesize\itshape, text=gaussiadark},
 }
 
+% Ragged-right flexible column: avoids stretched spacing in narrow table cells.
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+
+% ---- Coverage symbols for the requirements matrix ---------------------------
+\newcommand{\cfull}{\tikz[baseline=-0.5ex]\fill[gaussiaccent](0,0)circle(0.85ex);}
+\newcommand{\cpart}{\tikz[baseline=-0.5ex]{%
+  \draw[gaussiaccent, thick](0,0)circle(0.85ex);
+  \fill[gaussiaccent](0,0.85ex) arc(90:270:0.85ex)--cycle;}}
+\newcommand{\cnone}{\tikz[baseline=-0.5ex]\draw[gaussiadark!45, thick](0,0)circle(0.85ex);}
+
 % Metadata
 \title{\textbf{Boltzmann Brain: A Versioned, Distributable, and\\
 Model-Agnostic Knowledge Architecture}}
@@ -125,7 +135,11 @@ selective installation and incremental updates. Interaction happens through the
 blocks and consumes Evidence Bundles, while the protocol governs what is
 committed and returns only verified evidence, never prose. Because the brain is
 portable data addressed by a protocol rather than a deployable service, the same
-snapshot can be read and extended by any conforming client. This first version
+snapshot can be read and extended by any conforming client. Because wrong
+knowledge must be removable without punching holes in the current snapshot, we
+also specify how non-episodic modules drop blocks, rebuild their Merkle DAGs,
+and cascade the change through provenance, with redaction reserved for the
+rarer case where retained bytes must be destroyed. This first version
 fixes the boundaries and responsibilities of the architecture and leaves
 concrete block schemas, wire formats, and algorithms for later validation.
 \end{abstract}
@@ -174,7 +188,9 @@ phrasing answers) is delegated to an interchangeable external model.
 This work makes the following contributions:
 \begin{enumerate}[leftmargin=1.4em]
   \item A set of design principles and problems (Section~\ref{sec:principles})
-  for portable, verifiable, model-agnostic knowledge.
+  for portable, verifiable, model-agnostic knowledge, and an argument for why
+  six requirements that existing work satisfies separately must hold over a
+  single artifact (Section~\ref{sec:related}).
   \item A mapping from biological memory principles and classic systems
   structures to concrete architectural decisions (Section~\ref{sec:inspiration}).
   \item A five-module memory model (canonical, episodic, semantic,
@@ -185,6 +201,10 @@ This work makes the following contributions:
   installation and incremental updates (Section~\ref{sec:distribution}), and a
   model-agnostic protocol with explicit ingestion and query contracts
   (Sections~\ref{sec:protocol}--\ref{sec:query}).
+  \item A treatment of how knowledge leaves a brain
+  (Section~\ref{sec:forgetting}): drop with Merkle rebuild and provenance
+  cascade for non-episodic modules, supersession for episodic memory, pruning
+  of unreachable blocks, and redaction when retained bytes must be destroyed.
 \end{enumerate}
 
 \paragraph{Scope of this version.}
@@ -239,6 +259,8 @@ LLM-era knowledge is currently stored and consumed:
   rather than collapsing everything into undifferentiated chunks.
   \item Updating knowledge without losing history, provenance, or
   reproducibility.
+  \item Removing knowledge that is obsolete, costly, or legally untenable,
+  without silently compromising verifiability.
   \item Distributing a complete brain or only selected modules.
   \item Allowing interchangeable external LLMs to query and contribute
   knowledge through a stable contract.
@@ -246,12 +268,12 @@ LLM-era knowledge is currently stored and consumed:
 
 \subsection{Guiding principles}
 
-Seven principles follow from these problems and constrain every subsequent
+Eight principles follow from these problems and constrain every subsequent
 design decision:
 
 \begin{enumerate}[leftmargin=1.6em]
   \item Knowledge lives in blocks; indices are not the source of truth.
-  \item Original evidence must be preserved; interpretations may change.
+  \item Original evidence is preserved by default; interpretations may change.
   \item Every version must be identifiable, verifiable, and reconstructible.
   \item Modules must be distributable and installable selectively.
   \item The protocol must not embed an LLM of its own nor depend on a specific
@@ -259,6 +281,9 @@ design decision:
   \item Specialized structures compose; no single index answers every query.
   \item Queries are declarative and index-agnostic: callers ask for knowledge,
   and the selection and combination of indices is left to the implementation.
+  \item Forgetting is explicit and auditable: non-episodic modules support drop
+  with Merkle rebuild and provenance cascade; content may be redacted under
+  policy, but never silently.
 \end{enumerate}
 
 These principles are intentionally conservative. They privilege durability and
@@ -292,10 +317,13 @@ resolution, and contradiction detection; pattern completion inspires
 recovering a full memory from a partial query through hybrid
 search~\cite{yassa2011pattern, knierim2016tracking, rebola2017pattern}.
 Finally, reconsolidation suggests that retrieving knowledge can open a
-controlled revision, while adaptive forgetting suggests reducing accessibility
-without necessarily destroying the underlying
-evidence~\cite{nader2009reconsolidation, redondo2011tagging,
-ryan2022forgetting}.
+controlled revision~\cite{nader2009reconsolidation, redondo2011tagging}, while
+work on pruning and active forgetting suggests that removing what is not
+reinforced is a regulated process rather than a failure, and that accessibility
+can be reduced without destroying the underlying
+evidence~\cite{paolicelli2011pruning, davis2017forgetting, ryan2022forgetting}.
+Section~\ref{sec:forgetting} develops this last point into concrete retention
+and erasure mechanisms.
 
 \begin{figure}[t]
 \centering
@@ -303,17 +331,20 @@ ryan2022forgetting}.
   \node[bluebox, text width=4.2cm] (b1) {\footnotesize Fast vs.\ slow\\ learning (CLS)};
   \node[bluebox, below=of b1, text width=4.2cm] (b2) {\footnotesize Hippocampal\\ indexing};
   \node[bluebox, below=of b2, text width=4.2cm] (b3) {\footnotesize Pattern separation\\ \& completion};
-  \node[bluebox, below=of b3, text width=4.2cm] (b4) {\footnotesize Reconsolidation \&\\ adaptive forgetting};
+  \node[bluebox, below=of b3, text width=4.2cm] (b4) {\footnotesize Reconsolidation};
+  \node[bluebox, below=of b4, text width=4.2cm] (b5) {\footnotesize Synaptic pruning \&\\ active forgetting};
 
   \node[accentbox, right=of b1, text width=4.6cm] (a1) {\footnotesize Split episodic capture\\ from semantic consolidation};
   \node[accentbox, right=of b2, text width=4.6cm] (a2) {\footnotesize Indices separate from\\ knowledge blocks};
   \node[accentbox, right=of b3, text width=4.6cm] (a3) {\footnotesize Dedup, identity resolution,\\ hybrid retrieval};
   \node[accentbox, right=of b4, text width=4.6cm] (a4) {\footnotesize Controlled revision;\\ supersede without deleting};
+  \node[accentbox, right=of b5, text width=4.6cm] (a5) {\footnotesize Drop with Merkle rebuild;\\ prune unreachable blocks};
 
   \draw[flowa] (b1) -- (a1);
   \draw[flowa] (b2) -- (a2);
   \draw[flowa] (b3) -- (a3);
   \draw[flowa] (b4) -- (a4);
+  \draw[flowa] (b5) -- (a5);
   \node[lbl, above=1mm of b1] {Biological principle};
   \node[lbl, above=1mm of a1] {Architectural decision};
 \end{tikzpicture}
@@ -328,7 +359,7 @@ brain regions and system components.}
 Alongside biology, the architecture reuses well-understood systems structures.
 Table~\ref{tab:systems} lists each one and its contribution.
 
-\begin{table}[h]
+\begin{table}[htb]
 \centering
 \caption{Systems structures and their contribution to Boltzmann Brain.}
 \label{tab:systems}
@@ -342,6 +373,7 @@ B\textsuperscript{+} tree & Exact lookup, hierarchies, and ordered range scans. 
 Inverted index            & Lexical search over words and terms. \\
 Vector index              & Approximate retrieval by semantic similarity. \\
 Graph                     & Explicit relations, provenance, associative expansion. \\
+Mark-and-sweep collection & Reclaiming blocks unreachable from a retained root. \\
 OCI Artifact              & Interoperable packaging and distribution of modules. \\
 Skill / MCP / CLI / API   & Contract for an external LLM to query and ingest. \\
 \bottomrule
@@ -349,8 +381,10 @@ Skill / MCP / CLI / API   & Contract for an external LLM to query and ingest. \\
 \end{table}
 
 % ===========================================================================
-\section{Related Work}
+\section{Related Work and the Case for a New Protocol}
 \label{sec:related}
+
+\subsection{The landscape}
 
 The industry is already solving pieces of this problem, but no single artifact
 yet integrates a canonical source, typed memories, fine-grained versioning,
@@ -358,15 +392,15 @@ portable indices, modular distribution, and a model-agnostic access protocol.
 Table~\ref{tab:related} positions the most relevant efforts; we then discuss
 them in turn.
 
-\begin{table}[h]
+\begin{table}[htb]
 \centering
 \caption{Related efforts and their distance from Boltzmann Brain.}
 \label{tab:related}
-\begin{tabularx}{\textwidth}{lXX}
+\begin{tabularx}{\textwidth}{lYY}
 \toprule
 \textbf{Project / standard} & \textbf{What it contributes} & \textbf{Distance from Boltzmann Brain} \\
 \midrule
-Open Knowledge Format (Google, 2026)
+Open Knowledge Format
   & Markdown + YAML as a portable, human-readable format for agents.
   & Formalizes canonical exchange, but defines no access protocol, biological memory model, indices, or compiled distribution. \\
 GBrain
@@ -378,12 +412,6 @@ Microsoft GraphRAG
 Cognee
   & Turns data into chunks, embeddings, nodes, and relations; combines vector and graph.
   & Provides memory operations and enrichment, but does not define the proposed OCI/Merkle bundle. \\
-MCP
-  & Client--server standard for tools, resources, and prompts.
-  & A consumption interface; it defines neither storage nor versioning. \\
-OCI / ORAS
-  & Content-addressed artifacts, manifests, blobs, and registries.
-  & Solves distribution; Boltzmann adds module semantics and an internal Merkle. \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -395,18 +423,150 @@ behavior and offers interchangeable engines and agent
 integration~\cite{gbrain_brain_memory, gbrain_two_repo, gbrain_pluggable}.
 GraphRAG and Cognee illustrate the convergence toward hybrid representations
 that mix text, vectors, and graphs~\cite{graphrag_indexing, graphrag_query,
-cognee_concepts, cognee_cognify}. MCP standardizes how AI applications connect
-to external resources and tools~\cite{mcp2024}. Finally, the OCI ecosystem
-provides content-addressed manifests, descriptors, and blobs whose structure
-is itself an external Merkle DAG~\cite{oci_image_manifest, oci_descriptor,
-oras_artifacts}.
+cognee_concepts, cognee_cognify}.
 
-Boltzmann Brain is complementary rather than competing with these efforts. It
-can consume OKF-style canonical sources, borrow hybrid retrieval ideas from
+\paragraph{Substrate rather than alternatives.}
+Two standards that recur throughout this paper are deliberately absent from the
+comparison. MCP standardizes how applications connect to external resources and
+tools~\cite{mcp2024}, and the OCI ecosystem provides content-addressed
+manifests, descriptors, and blobs whose structure is itself an external Merkle
+DAG~\cite{oci_image_manifest, oci_descriptor, oras_artifacts}. Neither is an
+alternative to a knowledge architecture, because one standardizes a call and the
+other a transport, and this design adopts both instead of competing with them
+(Sections~\ref{sec:distribution} and~\ref{sec:protocol}). They return in
+Section~\ref{sec:composition}, where the question is what a stack assembled out
+of them still fails to provide.
+
+\subsection{Six requirements that must hold simultaneously}
+\label{sec:requirements}
+
+Proposing a new protocol requires more than observing that existing tools are
+imperfect. The argument of this paper is that the problems of
+Section~\ref{sec:principles} translate into six requirements which, to be
+useful, must hold \emph{at the same time and over the same artifact}:
+
+\begin{description}[leftmargin=2.6em, style=sameline, font=\normalfont\bfseries]
+  \item[R1. Canonical evidence.] The original source is preserved and
+  addressable, so that any interpretation can be audited against it and
+  re-derived when methods improve. Without this, knowledge cannot be
+  re-interpreted, only trusted.
+  \item[R2. Typed memories.] Concrete experiences, consolidated facts, and
+  procedures are distinguished rather than collapsed into undifferentiated
+  chunks. Without this, ``what happened in the class of May 14'' and ``the
+  definition of a Fourier series'' compete in a single similarity ranking.
+  \item[R3. Verifiable versioning at knowledge granularity.] Versions are
+  identifiable, verifiable, and reconstructible at the granularity of a unit of
+  knowledge rather than a file. Without this, a corrected fact cannot be
+  distinguished from an edited document.
+  \item[R4. Derived, replaceable indices.] Indices are views that can be
+  rebuilt or replaced when an engine or embedding model changes. Without this,
+  knowledge dies with the model that indexed it.
+  \item[R5. Selective and incremental distribution.] A consumer can install one
+  module and update only what changed. Without this, sharing knowledge means
+  shipping everything, every time.
+  \item[R6. Model-agnostic access contract.] A stable, declarative contract
+  lets interchangeable models query and contribute. Without this, the store is
+  reachable only through whoever wrote the integration.
+\end{description}
+
+Table~\ref{tab:coverage} scores the efforts of Table~\ref{tab:related} against
+these six axes. The pattern is not that existing work is weak; it is that each
+effort is strong on a different axis. Portable formats concentrate on R1 and
+leave retrieval undefined, while retrieval pipelines concentrate on R4 and treat
+versioning and distribution as someone else's problem. The closest neighbor,
+GBrain, is partial on almost every axis precisely because it inherits its
+versioning and distribution from Git rather than defining them at the knowledge
+layer. What no row does is combine more than a fraction of the six, which is the
+gap this paper addresses.
+
+\begin{table}[htb]
+\centering
+\caption[Design coverage of the six requirements]{Design coverage of the six
+requirements of Section~\ref{sec:requirements}: \cfull\ full, \cpart\ partial,
+\cnone\ absent. The last row states the design intent of this version, not a
+validated implementation.}
+\label{tab:coverage}
+\begin{tabular}{lcccccc}
+\toprule
+\textbf{Project / standard} & \textbf{R1} & \textbf{R2} & \textbf{R3}
+  & \textbf{R4} & \textbf{R5} & \textbf{R6} \\
+\midrule
+Open Knowledge Format         & \cfull & \cpart & \cpart & \cnone & \cnone & \cnone \\
+GBrain                        & \cfull & \cpart & \cpart & \cpart & \cpart & \cpart \\
+Microsoft GraphRAG            & \cpart & \cpart & \cnone & \cpart & \cnone & \cnone \\
+Cognee                        & \cpart & \cpart & \cnone & \cpart & \cnone & \cpart \\
+Vector store + RAG pipeline   & \cnone & \cnone & \cnone & \cnone & \cnone & \cnone \\
+\midrule
+Boltzmann Brain (this work)   & \cfull & \cfull & \cfull & \cfull & \cfull & \cfull \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Why composition is not enough}
+\label{sec:composition}
+
+Every one of the six requirements is met somewhere in the wider ecosystem, once
+the standards of the previous subsection are counted, so the obvious objection is
+that the answer is integration rather than a new protocol: put the sources in
+Git, run GraphRAG over them, expose the result through MCP, and ship it with
+OCI. That stack is worth building, and much of it is what a conforming
+implementation would look like. What it does not produce is a portable artifact,
+for four reasons.
+
+\paragraph{Identity does not compose.}
+Each layer carries its own notion of what a thing is: a commit, a pipeline
+output, a registry digest. None of them binds a retrieved item to the source it
+came from and to the snapshot it belongs to. That binding is exactly what an
+Evidence Bundle asserts when it reports \texttt{verified}, and it is why this
+architecture separates three levels of hashes
+(Section~\ref{sec:anatomy}) instead of borrowing one. Verifiability is a
+property of the whole path from source to answer, so it cannot be added by a
+layer that only sees its own inputs.
+
+\paragraph{Granularity mismatch.}
+Version control versions files; knowledge changes at the granularity of a
+claim. A corrected definition, its evidence, and the procedures that depended
+on it are not a diff over lines, and recovering that structure from a file
+history means reconstructing after the fact what the ingestion step already
+knew. R3 asks for versioning where the knowledge is, which is the block.
+
+\paragraph{The layering runs the wrong way.}
+In a retrieval pipeline the index is the product: documents are consumed to
+build embeddings and graphs, and those derived structures become the thing that
+is queried, stored, and eventually migrated. R4 requires the opposite ordering,
+with blocks as the durable artifact and indices as disposable views over them.
+Inverting an existing pipeline is not a matter of configuration, because a
+pipeline whose output is its state has no representation of the knowledge that
+survives it.
+
+\paragraph{Access and transport standardize the edges, not the middle.}
+MCP standardizes the call and OCI standardizes the bytes, which is why both
+appear in this design rather than being replaced by it. Neither says what is on
+the other side of the call or inside the blob. Two MCP servers over the same
+corpus share no verifiable state, and two registries holding the same brain
+agree on digests while knowing nothing about modules, memory types, or
+snapshots. The missing piece sits between them: a format for typed,
+content-addressed blocks plus a contract for reading and extending them.
+
+\paragraph{Why now.}
+The same argument would have been premature a few years ago, when the model,
+the pipeline, and the application were usually chosen once. Today embedding
+models are deprecated on a timescale of months and agent frameworks turn over
+faster still, so the useful life of accumulated knowledge routinely exceeds the
+life of the tools that produced it. The container ecosystem went through this
+transition: engines and registries became interchangeable only once image
+identity and packaging were specified independently of any implementation.
+LLM knowledge is at the earlier stage, with capable engines and no shared
+artifact, and this paper argues for specifying the artifact.
+
+\paragraph{Complementarity.}
+Boltzmann Brain is therefore complementary rather than competing. It can
+consume OKF-style canonical sources, borrow hybrid retrieval ideas from
 GraphRAG and Cognee, expose an MCP interface, and ride on OCI for
 distribution, while contributing the missing piece: a versioned, typed,
 model-agnostic \emph{bundle} whose modules can be installed and updated
-selectively.
+selectively, and whose contents remain verifiable no matter which model reads
+them.
 
 % ===========================================================================
 \section{Knowledge Modules}
@@ -417,11 +577,11 @@ installable as an independent physical unit and contains blocks, a Merkle DAG,
 and the indices needed for query. Table~\ref{tab:modules} names each module by
 the question it answers.
 
-\begin{table}[h]
+\begin{table}[htb]
 \centering
 \caption{The five memory modules, illustrated with a university brain.}
 \label{tab:modules}
-\begin{tabularx}{\textwidth}{lXX}
+\begin{tabularx}{\textwidth}{lYY}
 \toprule
 \textbf{Module} & \textbf{Question it answers} & \textbf{Examples} \\
 \midrule
@@ -442,8 +602,9 @@ does not automatically declare a statement true: it declares that a source
 
 \paragraph{Episodic module.}
 Records events and experiences with time, context, participants, outcome, and
-evidence. It is naturally append-only: corrections generate new episodes or
-supersession relations rather than in-place edits.
+evidence. It is the only module that stays append-only: corrections generate
+new episodes or supersession relations rather than drops that rewrite the past
+(Section~\ref{sec:forgetting}).
 
 \paragraph{Semantic module.}
 Holds consolidated general knowledge: concepts, formulas, facts, relations, and
@@ -457,7 +618,9 @@ given function.
 
 \paragraph{Provenance module.}
 Connects derived blocks to evidence, transformations, and tool versions. It is
-key to answering what must be recomputed when a source changes.
+key to answering what must be recomputed when a source changes, and it is the
+ledger of removals: every drop, cascade, and redaction is recorded there so
+that exclusion stays auditable (Section~\ref{sec:forgetting}).
 
 % ===========================================================================
 \section{Anatomy of a Module}
@@ -602,7 +765,7 @@ inside the same module so that each consumer need not recompute them, but they
 never replace the content. Table~\ref{tab:indices} lists the indices and their
 roles.
 
-\begin{table}[h]
+\begin{table}[htb]
 \centering
 \caption{Indices, their typical queries, and their role.}
 \label{tab:indices}
@@ -649,7 +812,7 @@ A recurring source of confusion is that the same cryptographic algorithm is
 used for three different kinds of identity. Table~\ref{tab:hashes} separates
 them.
 
-\begin{table}[h]
+\begin{table}[htb]
 \centering
 \caption{Three levels of hashes.}
 \label{tab:hashes}
@@ -737,7 +900,7 @@ If only the semantic module changes, the new manifest can reuse the digests of
 the remaining modules. The consumer downloads only the new semantic blob;
 inside it, the Merkle root reveals which logical blocks changed.
 
-\begin{table}[h]
+\begin{table}[htb]
 \centering
 \caption{An incremental update touches only the changed module's digest.}
 \label{tab:incremental}
@@ -776,6 +939,9 @@ operations to:
   \item Define processing tasks and output schemas for an external LLM.
   \item Validate candidate blocks before they are incorporated into the brain.
   \item Update Merkle DAGs, indices, and snapshots.
+  \item Drop, supersede, demote, collect, and redact blocks under an explicit
+  policy; a drop rebuilds the affected Merkle DAGs and cascades through
+  provenance (Section~\ref{sec:forgetting}).
   \item Publish new versions as OCI Artifacts.
   \item Be exposed through a skill, MCP, CLI, or API.
 \end{itemize}
@@ -983,6 +1149,225 @@ verification status, and remains free to explain, summarize, compare, or reuse
 the evidence. Those transformations happen outside the brain.
 
 % ===========================================================================
+\section{Retention, Forgetting, and Erasure}
+\label{sec:forgetting}
+
+Everything described so far only adds. Content addressing and immutable blocks
+make individual units append-only, but a module version is a \emph{composition}
+of those units, and compositions can exclude what should no longer belong.
+Without an explicit way to drop blocks, a brain that only grows is neither
+practical nor, in some jurisdictions, lawful, and it cannot recover from
+knowledge that was deliberately wrong.
+
+\subsection{Why exclusion must be first-class}
+
+Three pressures call for different responses, and they should not be conflated.
+
+\paragraph{Wrong or obsolete knowledge.}
+A semantic definition may be incorrect, a procedure may be outdated, or a
+canonical source may have been ingested in error. Leaving the block in the
+current composition and merely down-ranking it is not enough: the wrong claim
+still lives in the snapshot that consumers install. The protocol needs a way to
+\emph{exclude} it from the next version.
+
+\paragraph{Cost and signal.}
+Unbounded growth costs storage and precision. Stale near-duplicates compete for
+the top of every ranking, so a brain that never excludes gets measurably worse
+at answering.
+
+\paragraph{Law and safety.}
+Personal data, credentials, or licensed material may have to disappear even
+from retained history~\cite{gdpr2016}. That case is stricter than exclusion: it
+requires destroying bytes that a retained root still names. It is treated
+separately in Section~\ref{sec:erasure-verifiability}.
+
+\subsection{What biology suggests}
+
+Forgetting in nervous systems is a regulated process, not a storage failure.
+Microglial pruning eliminates connections that are not
+reinforced~\cite{paolicelli2011pruning}, active forgetting is driven by
+dedicated molecular machinery~\cite{davis2017forgetting}, and engram studies
+treat inaccessibility as adaptive plasticity rather than
+erasure~\cite{ryan2022forgetting}. Cognitive psychology separates the
+availability of a trace from its accessibility~\cite{bjork1992disuse}. The
+architectural reading is that exclusion from the current composition is the
+default, that reclamation of what no retained version needs is a background
+process, and that destroying evidence is a rare, policy-bound exception rather
+than the ordinary cleanup path.
+
+\subsection{Drop: excluding blocks from a module}
+\label{sec:drop}
+
+The primary removal operation is \emph{drop}. It applies to the
+\textbf{canonical}, \textbf{semantic}, \textbf{procedural}, and
+\textbf{provenance} modules. The \textbf{episodic} module is exempt: episodes
+are a chronological record of what happened, so corrections append new episodes
+or supersession relations rather than rewriting the past
+(Section~\ref{sec:modules}).
+
+A drop does not mutate blocks in place. Blocks remain content-addressed and
+immutable. What changes is the \emph{composition} of the module: the protocol
+builds a new Merkle DAG whose leaves are the surviving
+\texttt{block\_id}s, computes a new root, rebuilds the module's indices from
+that composition, and records the removal in provenance
+(Figure~\ref{fig:lifecycle-states}). The dropped blocks become unreachable from
+the new root and are eligible for pruning once no retained root references
+them. Structural sharing still applies: unchanged blocks are reused by hash, so
+the cost of a drop is proportional to what was removed, not to the size of the
+module (Section~\ref{sec:anatomy}).
+
+\begin{callout}[title=Example]
+\texttt{semantic-root v1} contains \texttt{K1}, \texttt{K2}, and \texttt{K3},
+where \texttt{K2} is a wrong Fourier definition. A drop of \texttt{K2} yields
+\texttt{semantic-root v2} over \texttt{K1} and \texttt{K3} only. Indices are
+rebuilt without \texttt{K2}, and provenance records that \texttt{K2} was
+dropped, by whom, and why. Optionally the external LLM re-derives a corrected
+\texttt{K2$'$} from the canonical source and a later commit adds it under
+\texttt{v3}. The wrong block never appears in \texttt{v2} or \texttt{v3}.
+\end{callout}
+
+\paragraph{Provenance cascade.}
+Dropping a block is not local. Provenance already answers which derived blocks
+depend on a given source or transformation (Section~\ref{sec:modules}). When a
+canonical block is dropped, the protocol walks that dependency closure and drops
+or marks for re-derivation every semantic and procedural block that listed it
+as evidence. When a semantic or procedural block is dropped, provenance removes
+or rewrites the edges that pointed to it, and any downstream dependents are
+treated the same way. The cascade is itself a set of drops: each affected
+module receives a new Merkle root, and a single logical removal can therefore
+publish several new module versions in one operation. Provenance also records
+the actor, the policy, the reason, and the set of roots that resulted, so the
+removal is auditable even though the dropped content is no longer part of the
+current composition.
+
+\paragraph{Batch invalidation.}
+Because provenance records the producer of each derived block (model, pipeline,
+ingestion batch, or actor), a drop may be stated over a \emph{set}: everything
+produced by a given ingestion, or everything derived by a given model version.
+That is the natural response to deliberately wrong knowledge introduced in
+bulk, and it reuses the same cascade rather than inventing a second mechanism.
+
+\subsection{Companion mechanisms}
+
+Drop is the ordinary way to remove knowledge from a non-episodic module. Three
+companion operations cover accessibility, reclamation, and the rare case where
+bytes must disappear while a retained root still names them
+(Table~\ref{tab:forgetting}).
+
+\paragraph{Supersession and demotion.}
+A block is marked as superseded by a newer one, or its retrieval priority
+decays. It stays in the current composition and remains verifiable; what
+changes is accessibility. This is the default path for the episodic module,
+and an optional soft path elsewhere when history inside the current snapshot
+must remain queryable under an explicit filter.
+
+\paragraph{Pruning of unreachable blocks.}
+A brain retains a set of roots (tagged releases plus recent snapshots). After
+drops, former leaves are unreachable from those roots and can be reclaimed by
+mark-and-sweep~\cite{chacon2014git}. Pruning never decides \emph{what} to
+forget; it reclaims what no retained composition still needs.
+
+\paragraph{Redaction of referenced content.}
+Only when content that a retained root still references must be destroyed does
+the protocol remove bytes: a \emph{tombstone} deletes the bytes and leaves an
+auditable record; \emph{crypto-shredding} destroys the encryption
+key~\cite{nist2014sanitization}; a \emph{lineage rewrite} rebuilds history so
+the block was never referenced. Redaction is the exception, not the cleanup
+path for wrong semantic or procedural knowledge. Wrong knowledge is dropped; it
+is not tombstoned.
+
+\begin{table}[htb]
+\centering
+\caption{Removal mechanisms and their guarantees.}
+\label{tab:forgetting}
+\begin{tabularx}{\textwidth}{lYlY}
+\toprule
+\textbf{Mechanism} & \textbf{What it removes} & \textbf{Reversible} &
+\textbf{Effect on current roots} \\
+\midrule
+Drop (non-episodic) & Membership in the module composition. &
+  Via a later commit that re-adds. &
+  New Merkle root without the block; indices rebuilt; provenance updated. \\
+Supersession / demotion & Accessibility, not membership. & Yes &
+  None; block stays in the composition. \\
+Pruning & Bytes of blocks in no retained root. & No &
+  None; retained roots unaffected. \\
+\midrule
+\multicolumn{4}{@{}l}{\emph{Redaction (retained root still names the block):}} \\
+\quad Tombstone & The bytes; identity kept. & No &
+  Root intact; block unresolvable. \\
+\quad Crypto-shredding & The plaintext, via the key. & No &
+  Root intact; ciphertext still verifies. \\
+\quad Lineage rewrite & The block and its history. & No &
+  Prior roots invalidated; new lineage published. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[node distance=5mm and 12mm]
+  \node[accentbox] (act) {\footnotesize active};
+  \node[smallbox, right=of act] (drop) {\footnotesize dropped};
+  \node[smallbox, right=of drop] (unr) {\footnotesize unreachable};
+  \node[smallbox, right=of unr, fill=gaussiasoft] (pru) {\footnotesize pruned};
+  \node[smallbox, below=14mm of act] (sup) {\footnotesize superseded};
+  \node[smallbox, draw=gaussiaccent, fill=gaussiasoft, below=14mm of drop]
+    (tomb) {\footnotesize tombstoned};
+
+  \draw[flowa] (act) -- node[lbl, above, align=center]{drop\\ (new root)} (drop);
+  \draw[flow] (drop) -- node[lbl, above, align=center]{no retained\\ root} (unr);
+  \draw[flow] (unr) -- node[lbl, above, align=center]{garbage\\ collection} (pru);
+  \draw[flow] (act) -- node[lbl, left, align=center]{newer\\ block} (sup);
+  \draw[flowa] (act.south east) -- (tomb.north west);
+  \node[lbl, right=2mm of tomb, align=left]
+    {erasure policy:\\ identity kept, bytes removed};
+\end{tikzpicture}
+\caption{Lifecycle states of a knowledge block. The ordinary removal path for
+non-episodic modules is drop: a new Merkle root excludes the block, provenance
+is updated, and pruning later reclaims bytes once no retained root references
+it. Supersession keeps the block in the composition; redaction destroys bytes
+that a retained root still names.}
+\label{fig:lifecycle-states}
+\end{figure}
+
+\subsection{Why drop preserves a clean snapshot}
+\label{sec:erasure-verifiability}
+
+A drop publishes a new composition. Consumers of the new root never see the
+dropped block: membership proofs, indices, and Evidence Bundles are computed
+over the survivors only. Older roots, if still retained, continue to verify
+exactly as before, because nothing about them changed. The brain therefore
+offers a \emph{clean current snapshot} after every drop, which is the property
+that makes exclusion usable for wrong knowledge.
+
+Redaction is different: it punches a hole in a composition that still names the
+block. The Merkle DAG references identities, not bytes, so deleting the bytes
+behind a leaf changes no hash and membership still verifies, but reconstruction
+of that one block is forfeited. A conforming implementation must report which
+blocks of a snapshot are resolvable and which are tombstoned, so that a removed
+block is never indistinguishable from a corrupted one. Provenance is again the
+home for that record.
+
+Two limitations of redaction deserve stating. A hash of low-entropy content is
+not anonymous, so confirming a guess may still be possible when the
+\texttt{block\_id} is kept. And erasure does not propagate by itself across
+already-pulled copies: the protocol can publish a revocation, but a distributed
+brain can only signal destruction, not guarantee it. Neither limitation applies
+to an ordinary drop of wrong semantic or procedural knowledge, because the new
+root simply never included the block.
+
+\subsection{Policy is configuration}
+
+As with query planning (Section~\ref{sec:query}), the protocol fixes the
+operations and the invariants, not the thresholds. Who may drop from which
+module, how deep the provenance cascade runs before requiring review, how many
+roots to retain, and which categories of content are redactable are deployment
+decisions. What the protocol requires is that every drop, supersession, prune,
+and redaction be explicit, recorded in provenance, and reportable, which is the
+content of Principle~8.
+
+% ===========================================================================
 \section{Knowledge Lifecycle}
 \label{sec:lifecycle}
 
@@ -1007,8 +1392,10 @@ The full lifecycle ties the previous sections together:
   for the user.
   \item \textbf{Reconsolidation:} new evidence or corrections generate later
   candidates and snapshots.
-  \item \textbf{Adaptive forgetting:} obsolete content can become superseded or
-  lose priority without destroying the audit trail.
+  \item \textbf{Forgetting and retention:} non-episodic modules drop wrong or
+  obsolete blocks, rebuild their Merkle roots, cascade through provenance, and
+  prune what no retained root needs; episodic memory supersedes; redaction
+  destroys bytes only when policy requires it (Section~\ref{sec:forgetting}).
 \end{enumerate}
 
 The canonical, episodic, semantic, procedural, and provenance memories remain
@@ -1025,9 +1412,11 @@ verifiable, and model-agnostic knowledge. Its core commitment is a clean
 separation of concerns: the brain conserves, validates, and retrieves, while an
 external, interchangeable LLM interprets and contextualizes. From this
 commitment follow the five-module memory model, the content-addressed blocks
-versioned by Merkle DAGs, the derived indices, the three levels of hashes, and
-a distribution model in which OCI Artifacts enable selective installation and
-incremental updates.
+versioned by Merkle DAGs, the derived indices, the three levels of hashes, a
+distribution model in which OCI Artifacts enable selective installation and
+incremental updates, and an account of how non-episodic modules drop wrong
+knowledge, rebuild Merkle roots, cascade through provenance, and reclaim
+unreachable blocks, with redaction reserved for destroying retained bytes.
 
 This version deliberately fixes boundaries and responsibilities rather than
 implementations. Concrete block schemas, wire formats, and algorithms remain to
@@ -1035,10 +1424,13 @@ be validated: the exact block schema per memory type, the deterministic
 serialization used for \texttt{block\_id}, the consolidation and
 contradiction-detection algorithms, the pack sizing and index engine choices,
 and the precise shape of the ingestion and query operations exposed through
-skills, MCP, CLI, or API. We also see promising work in formalizing
-supersession and adaptive forgetting so that accessibility can decay without
-compromising auditability. Validating these pieces against real, multi-source
-brains is the natural next step.
+skills, MCP, CLI, or API. Retention leaves its own open questions: the exact
+shape of the drop operation and its provenance cascade, which decay function
+governs demotion in the episodic module, what a sensible default retention
+policy over roots looks like, and how a revocation should propagate through
+registries and caches so that destruction of retained bytes becomes more than a
+local guarantee. Validating these pieces against real, multi-source brains is
+the natural next step.
 
 % ===========================================================================
 \bibliographystyle{plainnat}
