@@ -135,11 +135,13 @@ selective installation and incremental updates. Interaction happens through the
 blocks and consumes Evidence Bundles, while the protocol governs what is
 committed and returns only verified evidence, never prose. Because the brain is
 portable data addressed by a protocol rather than a deployable service, the same
-snapshot can be read and extended by any conforming client. Because wrong
-knowledge must be removable without punching holes in the current snapshot, we
-also specify how non-episodic modules drop blocks, rebuild their Merkle DAGs,
-and cascade the change through provenance, with redaction reserved for the
-rarer case where retained bytes must be destroyed. This first version
+snapshot can be read and extended by any conforming client. Canonical blocks are
+the root of evidence: they record what was observed, not what is true, and every
+derived interpretation cites them through provenance. Because wrong knowledge
+must be removable without punching holes in the current snapshot, we specify how
+non-episodic modules drop blocks, rebuild their Merkle DAGs, and cascade through
+provenance, with a privileged cascade when the dropped block is canonical, and
+with redaction reserved for destroying retained bytes. This first version
 fixes the boundaries and responsibilities of the architecture and leaves
 concrete block schemas, wire formats, and algorithms for later validation.
 \end{abstract}
@@ -194,8 +196,9 @@ This work makes the following contributions:
   \item A mapping from biological memory principles and classic systems
   structures to concrete architectural decisions (Section~\ref{sec:inspiration}).
   \item A five-module memory model (canonical, episodic, semantic,
-  procedural, and provenance; Section~\ref{sec:modules}) together with an
-  internal module anatomy of content-addressed blocks, Merkle DAGs, and indices
+  procedural, and provenance; Section~\ref{sec:modules}) that treats the
+  canonical module as the root of observed evidence, together with an internal
+  module anatomy of content-addressed blocks, Merkle DAGs, and indices
   (Section~\ref{sec:anatomy}).
   \item A distribution model based on OCI Artifacts that enables selective
   installation and incremental updates (Section~\ref{sec:distribution}), and a
@@ -203,8 +206,9 @@ This work makes the following contributions:
   (Sections~\ref{sec:protocol}--\ref{sec:query}).
   \item A treatment of how knowledge leaves a brain
   (Section~\ref{sec:forgetting}): drop with Merkle rebuild and provenance
-  cascade for non-episodic modules, supersession for episodic memory, pruning
-  of unreachable blocks, and redaction when retained bytes must be destroyed.
+  cascade for non-episodic modules, a privileged cascade when canonical evidence
+  is excluded, supersession for episodic memory, pruning of unreachable blocks,
+  and redaction when retained bytes must be destroyed.
 \end{enumerate}
 
 \paragraph{Scope of this version.}
@@ -274,6 +278,8 @@ design decision:
 \begin{enumerate}[leftmargin=1.6em]
   \item Knowledge lives in blocks; indices are not the source of truth.
   \item Original evidence is preserved by default; interpretations may change.
+  Dropping a canonical block is allowed only under explicit policy, and it
+  forfeits re-derivation from that source.
   \item Every version must be identifiable, verifiable, and reconstructible.
   \item Modules must be distributable and installable selectively.
   \item The protocol must not embed an LLM of its own nor depend on a specific
@@ -282,8 +288,9 @@ design decision:
   \item Queries are declarative and index-agnostic: callers ask for knowledge,
   and the selection and combination of indices is left to the implementation.
   \item Forgetting is explicit and auditable: non-episodic modules support drop
-  with Merkle rebuild and provenance cascade; content may be redacted under
-  policy, but never silently.
+  with Merkle rebuild and provenance cascade; dropping canonical evidence is
+  privileged and always cascades; content may be redacted under policy, but
+  never silently.
 \end{enumerate}
 
 These principles are intentionally conservative. They privilege durability and
@@ -595,10 +602,26 @@ Provenance   & Where did it come from and how was it transformed? & Page, source
 \end{table}
 
 \paragraph{Canonical module.}
-Preserves evidence. It may include original files and normalized
-representations, always maintaining a verifiable path back to the origin. It
-does not automatically declare a statement true: it declares that a source
-\emph{contains} certain information.
+Preserves observed evidence, not truth claims. A canonical block asserts that a
+source was incorporated and that it \emph{contains} certain bytes; it does not
+declare those bytes correct. Because every semantic and procedural
+interpretation cites canonical evidence through provenance, this module is the
+root of re-derivation: without the source, derived knowledge cannot be rebuilt
+cleanly from below.
+
+The module holds two content-addressed layers. The \emph{original} is the blob
+as observed (PDF, repository archive, conversation export, image, audio, and so
+on). An optional \emph{normalized view} is a deterministic transform of that
+blob (plain text, Markdown, or a structured extract) produced by a named
+pipeline whose identity is recorded in provenance. Normalized views live in
+canonical rather than semantic memory because they are still evidence for
+ingestion, not consolidated knowledge. Both layers are addressed by hash, so
+re-registering an identical original is a no-op.
+
+Each canonical block carries at least its \texttt{block\_id}, media type, size,
+license or retention policy, registering actor, and timestamp, and may carry a
+\texttt{supersedes} link to an earlier canonical block when a new edition
+replaces an old one (Section~\ref{sec:ingestion}).
 
 \paragraph{Episodic module.}
 Records events and experiences with time, context, participants, outcome, and
@@ -935,7 +958,8 @@ operations to:
   \item Discover installed modules, versions, and Merkle roots.
   \item Open B\textsuperscript{+}, lexical, vector, and graph indices.
   \item Resolve a \texttt{block\_id} to its physical location and verify its hash.
-  \item Register canonical sources, provenance, and \texttt{derived\_from} relations.
+  \item Register, replace, and drop canonical sources; record provenance and
+  \texttt{derived\_from} relations.
   \item Define processing tasks and output schemas for an external LLM.
   \item Validate candidate blocks before they are incorporated into the brain.
   \item Update Merkle DAGs, indices, and snapshots.
@@ -1000,14 +1024,19 @@ proposes blocks. Only validated candidates are committed and versioned.}
 
 \subsection{Canonical registration}
 
+Canonical evidence enters through three protocol operations. There is no
+in-place edit of a source: a new edition is always a new block.
+
+\paragraph{Register.}
 \begin{enumerate}[leftmargin=1.6em]
   \item The user provides a PDF, text, repository, conversation, image, or
   other source.
   \item The LLM invokes the \texttt{brain.ingest} operation through the
   available skill or adapter.
   \item The format is validated, its SHA-256 computed, and exact duplicates
-  detected.
-  \item The original is stored as an immutable canonical block.
+  detected; re-registering an identical blob is a no-op.
+  \item The original is stored as an immutable canonical block, optionally
+  together with a normalized view produced by a named deterministic pipeline.
   \item The protocol records who incorporated it, when, from where, and under
   what license or policy.
   \item The canonical Merkle root changes and a new snapshot becomes
@@ -1016,6 +1045,23 @@ proposes blocks. Only validated candidates are committed and versioned.}
 
 Registering a source does not declare it true. The canonical module asserts
 that the evidence was incorporated and preserved.
+
+\paragraph{Replace.}
+When a newer edition of a source should take precedence, the protocol registers
+the new original as a distinct block and records a \texttt{supersedes} link to
+the previous one. The caller chooses whether the superseded original remains in
+the current composition (kept for audit) or is dropped in the same commit. In
+either case the new block is what subsequent processing tasks read.
+\texttt{replace} is therefore register plus a supersession edge, with an
+optional drop of the old evidence, not a mutation of bytes already stored.
+
+\paragraph{Drop.}
+Excluding a canonical block from the current composition is the same drop
+operation defined in Section~\ref{sec:forgetting}, with a privileged cascade:
+every derived block that cites the dropped evidence is dropped by default in
+the same commit, unless the caller has already registered a replacement and
+requests re-derivation against it. Dropping canonical evidence is allowed only
+under explicit policy (Principle~2).
 
 \subsection{Processing task}
 
@@ -1227,18 +1273,34 @@ dropped, by whom, and why. Optionally the external LLM re-derives a corrected
 \end{callout}
 
 \paragraph{Provenance cascade.}
-Dropping a block is not local. Provenance already answers which derived blocks
-depend on a given source or transformation (Section~\ref{sec:modules}). When a
-canonical block is dropped, the protocol walks that dependency closure and drops
-or marks for re-derivation every semantic and procedural block that listed it
-as evidence. When a semantic or procedural block is dropped, provenance removes
-or rewrites the edges that pointed to it, and any downstream dependents are
-treated the same way. The cascade is itself a set of drops: each affected
-module receives a new Merkle root, and a single logical removal can therefore
-publish several new module versions in one operation. Provenance also records
-the actor, the policy, the reason, and the set of roots that resulted, so the
-removal is auditable even though the dropped content is no longer part of the
-current composition.
+Dropping a block is not always local, and the cascade differs by module.
+
+Dropping a \emph{semantic} or \emph{procedural} block removes it from that
+module's composition and rewrites or removes provenance edges that pointed to
+it. Downstream dependents are treated the same way. The canonical source
+remains, so the caller may later re-derive a corrected block from the same
+evidence.
+
+Dropping a \emph{canonical} block is privileged. Because derived knowledge
+cites that evidence as its root, the protocol always walks the dependency
+closure and, by default, \emph{drops} every semantic and procedural block that
+listed the canonical as evidence, in the same commit. Re-derivation is not the
+default: it runs only if the caller has already registered a replacement
+canonical (\texttt{replace}) or explicitly requests \texttt{rederive} against
+another canonical still in the composition. Each affected module receives a new
+Merkle root, so a single logical removal of evidence can publish several new
+module versions at once. Provenance records the actor, the policy, the reason,
+and the resulting roots, so the removal stays auditable even though the dropped
+content is no longer part of the current composition.
+
+\begin{callout}[title=Example]
+The wrong lecture PDF was ingested as \texttt{PDF\_wrong}, and several semantic
+blocks cite it. A \texttt{drop} of \texttt{PDF\_wrong} yields a new canonical
+root without that blob; the cascade drops the derived definitions in the same
+commit. Registering the correct PDF and running a processing task then produces
+new candidates under a later snapshot. The wrong source never appears in the
+current composition, and neither do interpretations that depended only on it.
+\end{callout}
 
 \paragraph{Batch invalidation.}
 Because provenance records the producer of each derived block (model, pipeline,
@@ -1272,9 +1334,9 @@ Only when content that a retained root still references must be destroyed does
 the protocol remove bytes: a \emph{tombstone} deletes the bytes and leaves an
 auditable record; \emph{crypto-shredding} destroys the encryption
 key~\cite{nist2014sanitization}; a \emph{lineage rewrite} rebuilds history so
-the block was never referenced. Redaction is the exception, not the cleanup
-path for wrong semantic or procedural knowledge. Wrong knowledge is dropped; it
-is not tombstoned.
+the block was never referenced. Redaction is the path for destroying retained
+canonical bytes under law or safety policy. It is not the cleanup path for a
+wrongly ingested source or for wrong semantic knowledge: those are dropped.
 
 \begin{table}[htb]
 \centering
@@ -1287,7 +1349,8 @@ is not tombstoned.
 \midrule
 Drop (non-episodic) & Membership in the module composition. &
   Via a later commit that re-adds. &
-  New Merkle root without the block; indices rebuilt; provenance updated. \\
+  New Merkle root without the block; indices rebuilt; provenance updated.
+  Canonical drops always cascade to dependents. \\
 Supersession / demotion & Accessibility, not membership. & Yes &
   None; block stays in the composition. \\
 Pruning & Bytes of blocks in no retained root. & No &
@@ -1393,9 +1456,10 @@ The full lifecycle ties the previous sections together:
   \item \textbf{Reconsolidation:} new evidence or corrections generate later
   candidates and snapshots.
   \item \textbf{Forgetting and retention:} non-episodic modules drop wrong or
-  obsolete blocks, rebuild their Merkle roots, cascade through provenance, and
-  prune what no retained root needs; episodic memory supersedes; redaction
-  destroys bytes only when policy requires it (Section~\ref{sec:forgetting}).
+  obsolete blocks, rebuild their Merkle roots, and cascade through provenance
+  (canonical drops always cascade); prune what no retained root needs; episodic
+  memory supersedes; redaction destroys retained bytes only when policy requires
+  it (Section~\ref{sec:forgetting}).
 \end{enumerate}
 
 The canonical, episodic, semantic, procedural, and provenance memories remain
@@ -1414,9 +1478,11 @@ external, interchangeable LLM interprets and contextualizes. From this
 commitment follow the five-module memory model, the content-addressed blocks
 versioned by Merkle DAGs, the derived indices, the three levels of hashes, a
 distribution model in which OCI Artifacts enable selective installation and
-incremental updates, and an account of how non-episodic modules drop wrong
-knowledge, rebuild Merkle roots, cascade through provenance, and reclaim
-unreachable blocks, with redaction reserved for destroying retained bytes.
+incremental updates, and an account of how canonical evidence roots
+re-derivation, how non-episodic modules drop wrong knowledge with a privileged
+cascade when that knowledge's source is excluded, rebuild Merkle roots, and
+reclaim unreachable blocks, with redaction reserved for destroying retained
+bytes.
 
 This version deliberately fixes boundaries and responsibilities rather than
 implementations. Concrete block schemas, wire formats, and algorithms remain to
