@@ -829,6 +829,15 @@ version that produced it, so that consumers can reproduce or compare it. This
 keeps the blocks as the single source of truth while acknowledging that one
 derived structure cannot be regenerated in isolation.
 
+The same argument applies to a client that restarts. A structural index can be
+rebuilt from the installed blocks whenever it is needed, so losing it costs only
+the time to recompute it; the vector index cannot, and a client that holds it
+only in memory has lost it for good. An implementation must therefore persist the
+travelling index locally, alongside the module it belongs to, and must not
+republish a placeholder in its stead: an artifact whose layer claims a vector
+index and carries none is worse than one that omits the layer, because a consumer
+can detect the absence and cannot detect the emptiness.
+
 This separation has a representational reading. A block carries meaning in two
 portable, \emph{symbolic} forms: its text and its explicit relations to other
 blocks, the edges that in aggregate form the knowledge graph. Learned,
