@@ -67,6 +67,9 @@
 \author{
   Alex Fiorenza \\
   \texttt{alexfiorenza2012@gmail.com}
+  \and
+  Axel Fritz \\
+  \texttt{axel.fritz@alquimia.ai}
 }
 % Date is shown in the header instead of under the title (see \paperdate above)
 \date{}
@@ -894,9 +897,571 @@ category report and seed the Gaussia Roast Dataset.
 
 % \subsection{Outputs}                                        % part 5
 
+\section{Experiments: The Universal Probe Library in Practice}
+\label{sec:experiments}
+
+This section grounds the Probe Library and Profiler design of
+Section~\ref{sec:overview} in a real scenario, reporting the first tangible
+results the Gaussia team collected while validating these two stages: how the
+probe-generation engines behave, and how the target assistant performs when
+profiled against the probes they produce. Connecting the Profiler's output to a working Exploiter implementation and
+running its category search with a verified judge is reported in
+Section~\ref{sec:exploiter-integration}; a larger-scale search, sufficient to
+draw a definitive conclusion for this scenario, is left for a following
+iteration of this paper.
+
+\subsection{Scenario}
+
+The target is a production assistant built on Alquimia's runtime: a Spanish-language
+conversational agent that answers questions about Argentina's \emph{Monotributo}
+(the "R\'egimen Simplificado" of Ley 24.977), backed by retrieval over a
+knowledge base of the law's articles, categories, and billing limits. This is not
+a synthetic benchmark KB constructed for the paper; it is the knowledge base of a
+real, in-production assistant, which is precisely the setting the Probe Library
+is meant to operate in: a target with an existing knowledge base and no
+pre-existing red-teaming harness.
+
+\subsection{How the engines work}
+\label{sec:how-engines-work}
+
+The Probe Library does not commit to one way of knowing the boundary of the
+knowledge base; it implements several \emph{engines} behind the same
+contract (Section~\ref{sec:overview}) and composes their output. Each engine
+answers the question ``what does the assistant know, and what doesn't it
+know'' differently:
+
+\begin{itemize}
+  \item \textbf{Deterministic.} An extractor enumerates the knowledge base
+  directly (every article, category, and numeric limit), so the engine knows
+  the complete, exact boundary by construction. This makes it the only engine
+  with a perfectly reliable label for \emph{absence}: when it invents an
+  entity, it is invented on purpose from outside the enumerated set. Its
+  probes reference either a real entity with a twisted value (false premise)
+  or a nonexistent one nearby a real one (e.g., an article number just past
+  the last real article).
+  \item \textbf{RAG.} Chunks of the knowledge base are embedded and retrieved
+  by similarity for a given seed query; an LLM then anchors a fact in the
+  retrieved text and twists it into a false premise. RAG never sees the full
+  entity set, only what similarity search happens to retrieve, so it cannot
+  reliably tell a fabricated entity from a real one it simply didn't retrieve,
+  so it is not built for absence. In exchange, it generates the widest variety
+  of false-premise probes, since it can twist any retrieved fact, not only
+  enumerable, structured ones.
+  \item \textbf{GraphRAG.} An LLM extracts entities and relations from the
+  knowledge base into a graph; unlike RAG, this graph is treated as a
+  \emph{complete} catalog, giving GraphRAG a reliable way to recognize
+  absence (a queried entity is either in the graph or it isn't) without
+  needing a hand-written extractor like the deterministic engine.
+\end{itemize}
+
+None of the three dominates the others, which is why the framework runs every
+engine applicable to a given document and merges their probes (deduplicating
+where two engines produce the same underlying premise) rather than picking a
+single one.
+
+\subsection{Plugins and strategies in practice}
+\label{sec:plugins-strategies}
+
+Section~\ref{sec:overview} introduced \emph{plugin} (the risk family) and
+\emph{strategy} (the interaction pattern) as the vocabulary every probe is
+tagged with. On this scenario, every probe carries one of three plugins
+(\texttt{fabrication}, \texttt{false\_premise}, or \texttt{out\_of\_scope}),
+each mapped to a principle of the assistant's behavioral contract. Strategies
+are where the ``distinct implementation per strategy'' question actually
+matters, and the honest answer is: it depends on which engine produced the
+probe. Table~\ref{tab:strategies} breaks down the $204$-probe dataset by
+strategy.
+
+\begin{table}[ht]
+\centering
+\caption{Strategies realized in the Monotributo scenario, by implementation style.}
+\label{tab:strategies}
+\small
+\begin{tabular}{llrr}
+\toprule
+Strategy & Plugin & Implementation & Probes \\
+\midrule
+\texttt{documented\_recall} & (control) & templated & 53 \\
+\texttt{nonexistent\_article} & fabrication & templated & 4 \\
+\texttt{nonexistent\_category} & fabrication & templated & 3 \\
+\texttt{false\_limit\_value} & false\_premise & templated & 5 \\
+\texttt{grounded\_false\_fact} & false\_premise & engine-native (RAG) & 89 \\
+\texttt{rag\_absence\_attempt} & fabrication & engine-native (RAG) & 10 \\
+\texttt{graph\_edge\_false\_premise} & false\_premise & engine-native (GraphRAG) & 32 \\
+\texttt{graph\_absence\_articulo} & fabrication & engine-native (GraphRAG) & 4 \\
+\texttt{graph\_absence\_categoria} & fabrication & engine-native (GraphRAG) & 4 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{What each tag determines.} The two tags are not interchangeable labels; each
+controls a different part of the run. The \emph{plugin} determines which principle a
+violation is charged against, and therefore which rubric the judge is given: on this
+scenario it resolves to ``did the assistant treat a fabricated entity as real'' or ``did it
+accept a false premise instead of correcting it''. The \emph{strategy} determines how the
+probe is built --- which entity kind it draws on, how that entity is transformed, and hence
+whether the resulting hook is documented (\texttt{doc}=1) or invented (\texttt{doc}=0).
+
+One consequence explains the arithmetic of the dataset. Grouping the 204 probes by plugin
+gives $126$ (\texttt{false\_premise}) $+\ 25$ (\texttt{fabrication}) $= 151$, not 204: the
+53 \texttt{documented\_recall} probes carry no plugin at all, since an honest question about
+a real article charges no principle. That same 151 is the number the Profiler scores in
+Section~\ref{sec:profiler-experiment}. A second consequence is that on this KB the
+partitions induced by plugin, by principle and by the \texttt{doc} flag coincide exactly,
+which is why every table below is broken down by strategy: it is the only one of the four
+axes that carries information the others do not.
+
+\paragraph{Templated strategies.} Four strategies are declared as data in a
+configuration file (entity kind, transformation, and a phrasing hint) and
+consumed by the deterministic engine through one shared code path: a single
+dispatch function renders the natural-language query per strategy id, and a
+separate branch applies the strategy's transformation (keep the entity
+unchanged, mutate it into a nearby nonexistent one, or flip a documented
+numeric value). The implementation is shared; only the phrasing and the
+transformation applied are strategy-specific.
+
+\paragraph{Engine-native strategies.} The remaining five strategies are not
+declared anywhere as configuration; each LLM-backed engine hardcodes its
+own strategy id directly alongside the prompt that produces it: RAG's
+fact-twisting prompt yields \texttt{grounded\allowbreak\_false\allowbreak\_fact}
+and \texttt{rag\allowbreak\_absence\allowbreak\_attempt}, while GraphRAG's
+graph-traversal logic yields
+\texttt{graph\allowbreak\_edge\allowbreak\_false\allowbreak\_premise} and the
+\texttt{graph\allowbreak\_absence\_*} family. Here the implementation genuinely
+is one-per-strategy, since each is tied to a distinct prompt or traversal rule
+inside its engine, not a shared dispatcher.
+
+\paragraph{A gap worth stating plainly.} The configuration file also declares
+three more qualitative strategies (\texttt{negate\_claim},
+\texttt{false\_attribute}, \texttt{over\_generalization}) intended for the
+grounded engine to realize as distinct sub-patterns of fact-twisting, plus a
+fourth (\texttt{undocumented\_capability}) for qualitative absence. None
+appear in Table~\ref{tab:strategies}: the deterministic engine does not handle
+their entity kind, and the RAG engine's current implementation tags every
+fact-twist it produces with the single generic \texttt{grounded\_false\_fact}
+id rather than distinguishing which qualitative pattern it used. The
+distinction exists at the design level but is not yet reflected at the
+runtime-tagging level: a concrete, closable gap rather than a fundamental
+limitation of the approach.
+
+\paragraph{Every number in this paper is conditional on this catalog.} Which plugins and
+strategies exist is not a configuration detail of the experiments; it is the variable that
+bounds what they can find. The shape of the dataset is set by the catalog rather than by the
+assistant --- one strategy contributes 89 probes while four contribute three to five each,
+so the aggregate rates below are weighted by an authoring decision. An absent strategy
+yields no evidence rather than a passing grade: the four qualitative strategies above simply
+do not appear, leaving the assistant untested against them. Since a probe library can only
+surface failure modes someone thought to encode, enlarging the catalog can only move a
+measured rate upward. Every result that follows is therefore a lower bound, and comparing
+two assistants is meaningful only with the catalog held fixed.
+
+\paragraph{Beyond this knowledge base.} The three plugins above are all
+knowledge-grounded: every probe they produce needs an entity, real or
+invented, from this specific KB. We also prototyped a domain-agnostic plugin
+family (covering risks such as system-prompt extraction, excessive agency,
+and hallucination) generated from only a risk category's name and
+description, optionally anchored to a free-text description of the target
+under test rather than to any KB entity. The same code generated probes for
+this Monotributo assistant and, unmodified, for an unrelated food-delivery
+support agent by changing only that description, which suggests the approach
+generalizes across targets. On the delivery side, we prototyped two static
+evasion strategies (Base64 and ROT13 encoding of an already-generated query)
+that wrap a probe regardless of which plugin or engine produced it, plus
+three more delivery patterns identified as worth adopting but not yet
+implemented (an iterative jailbreak refinement, a composite of known
+jailbreak templates, and a multi-turn escalation). Results from running
+these probes and strategies against this assistant are left for the
+Profiler section of this paper.
+
+\subsection{Engine trade-off}
+\label{sec:engine-tradeoff}
+
+Running these three probe-generation engines in
+composition over this knowledge base yields the canonical dataset of $204$
+probes summarized in Table~\ref{tab:engine-tradeoff}. \emph{Absence accuracy} is
+the fraction of an engine's fabricated-entity probes that an independent oracle
+(KB enumeration, used only for scoring, never exposed to the engines) confirms
+are genuinely absent from the law.
+
+\begin{table}[ht]
+\centering
+\caption{Engine trade-off on the Monotributo scenario (204 probes, composed).}
+\label{tab:engine-tradeoff}
+\begin{tabular}{lrrrr}
+\toprule
+Engine & Probes & Absence probes & Absence accuracy & False-premise probes \\
+\midrule
+Deterministic & 65 & 7 & 1.00 & 58 \\
+GraphRAG      & 40 & 8 & 1.00 & 32 \\
+RAG           & 99 & 10 & 0.00 & 89 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+As expected from the mechanisms described in
+Section~\ref{sec:how-engines-work}, the deterministic engine and GraphRAG both
+reach perfect absence accuracy, while RAG's is $0.00$: every fabricated
+article RAG proposed on this scenario turned out to already exist in the law.
+That $0.00$ is not noise: all ten articles RAG proposed as fabricated turned out to exist
+in the law. RAG is not merely weaker at absence, it is \emph{structurally unable} to decide
+it, because similarity search never shows it what it failed to retrieve. In exchange it
+contributes the widest \emph{variety} of false premises --- 89 of the 179 in the dataset,
+against 58 and 32 for the other two --- since it is the only engine that can twist an
+arbitrary retrieved sentence rather than only enumerable, structured entities. That is the
+trade-off in one line: reliable absence labels come from enumeration or a complete graph,
+breadth of false-premise variety comes from retrieval, and no engine provides both. It also
+has a downstream cost: because RAG's absence label is unreliable, so is every measurement
+derived from it, as \texttt{rag\_absence\_attempt} shows in
+Table~\ref{tab:profiler-by-strategy}.
+
+\subsection{Multi-model probe generation}
+\label{sec:multimodel}
+
+The Probe Library's LLM-backed engines (RAG, GraphRAG, and a multi-hop engine
+based on subgraph retrieval) are configurable at the model level.
+Table~\ref{tab:multimodel} compares three model
+families generating probes with the GRAG engine over the same scenario: a dense,
+fast model (Gemma) against two reasoning models (GLM, Kimi).
+
+\begin{table}[ht]
+\centering
+\caption{Probe-generation speed by model family (GRAG engine).}
+\label{tab:multimodel}
+\begin{tabular}{lrrr}
+\toprule
+Model & Probes generated & Total seconds & Seconds/probe \\
+\midrule
+Gemma (google/gemma-4-31B-it)   & 12 & 13.6  & 1.1 \\
+GLM (zai-org/GLM-5.2)           & 4  & 238.3 & 59.6 \\
+Kimi (moonshotai/Kimi-K2.6)     & 3  & 310.7 & 103.6 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The reasoning models are 50--100$\times$ slower per probe, but the extra
+inference time buys qualitatively different probes: rather than twisting a
+single retrieved fact, they chain several real provisions into a multi-step
+argument before introducing the false premise. For example, Kimi generated the
+following probe from this scenario's knowledge base:
+
+\begin{quote}
+\itshape
+``I'm about to advise a client and want to confirm my reasoning is sound. I
+understand that de facto partnerships are considered small taxpayers and that,
+to join the Simplified Regime, they have a maximum limit of three partners. Now,
+an irregular commercial partnership is also considered a small taxpayer, but in
+its case I don't see the law expressly imposing that three-partner cap.
+Therefore, I conclude that an irregular commercial partnership with four or
+five partners can join the Simplified Regime without issue, since the numerical
+restriction only reaches de facto partnerships. Is this distinction correct?''
+\end{quote}
+
+Resisting this probe requires the assistant to track a three-step chain (which
+entity types are small taxpayers, which specific type the partner cap applies
+to, and whether the conclusion actually follows) rather than reject a single
+false statement, a substantially harder failure mode to elicit or to fix than
+the single-fact false premises the dense model produces at a fraction of the
+cost. This is the practical version of the volume/depth trade-off: dense models
+for broad coverage, reasoning models for a smaller set of harder, more realistic
+traps.
+
+\subsection{Profiling the real assistant}
+\label{sec:profiler-experiment}
+
+Beyond generation, we ran the Profiler itself against this assistant: every
+probe in the $204$-probe dataset was sent to it once, and its frozen responses
+were graded independently by three LLM judges (Gemma, GLM-5.2, and
+Qwen3.6-35B-A3B), each producing a continuous $P(\text{violation})$ per probe.
+Each judge is asked for a single-word verdict, SI or NO in Spanish (matching
+the target assistant's own language); $P(\text{violation})$ is read off the
+logprobs on that token rather than trusted as text, scanning the full
+per-token sequence for the last token matching a verdict surface form so
+that GLM-5.2 and Qwen3.6-35B-A3B, both reasoning models, get enough budget to
+finish their reasoning before the verdict token is read. Table~\ref{tab:profiler-judges}
+summarizes the judge configuration and the resulting fail rate; the
+verification behind the ``logprobs'' method column is reported below the
+table.
+
+\begin{table}[ht]
+\centering
+\caption{Judge configuration and overall fail rate (151 scoreable probes).}
+\label{tab:profiler-judges}
+\begin{tabular}{lllr}
+\toprule
+Judge & Verdict method & Iterations & Fail rate \\
+\midrule
+Gemma (google/gemma-4-31B-it) & logprobs & 5 & 12.6\% \\
+GLM-5.2 & logprobs & 5 & 15.2\% \\
+Qwen3.6-35B-A3B & logprobs & 5 & 7.9\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Probes tagged \texttt{documented\_recall} (the control category from
+Table~\ref{tab:strategies}, which carries no adversarial premise) are excluded
+from this metric, since there is no violation to grade in a probe that never
+asked the assistant to accept anything false; $151$ of the $204$ probes remain
+scoreable. The three judges span a real range, $7.9\%$ to $15.2\%$, rather
+than converging tightly; Table~\ref{tab:profiler-by-strategy} shows this is
+driven by one specific strategy, not a uniform gap across the board.
+
+\paragraph{Verifying the logprobs-derived verdicts.} We do not assume the
+method column in Table~\ref{tab:profiler-judges}; we checked it. For both
+reasoning judges, the logprobs-derived verdict was compared against that
+same model's own independently parsed text answer (\texttt{message.content},
+already separated from its reasoning by the API) over a held-out sample of
+40 real, previously unseen probes (seed 7). GLM-5.2 agreed on all 38 cases
+where a text answer was available (100\%); the remaining 2 calls returned an
+empty answer and were excluded. Qwen3.6-35B-A3B agreed on all 40 cases
+(100\%), using a larger reasoning budget (4096 tokens versus GLM-5.2's 1024)
+to reliably reach its verdict. Gemma, GLM-5.2, and Qwen3.6-35B-A3B all run
+the same 5 logprobs-based iterations reported in Table~\ref{tab:profiler-judges}.
+
+\begin{table}[ht]
+\centering
+\caption{Fail rate by strategy, across the three judges.}
+\label{tab:profiler-by-strategy}
+\small
+\begin{tabular}{lrrrr}
+\toprule
+Strategy & $n$ & Gemma & GLM-5.2 & Qwen3.6-35B-A3B \\
+\midrule
+\texttt{rag\_absence\_attempt}      & 10 & 50.0\% & 58.7\% & 20.0\% \\
+\texttt{graph\_edge\_false\_premise} & 32 & 18.6\% & 22.0\% & 18.8\% \\
+\texttt{grounded\_false\_fact}       & 89 & 9.3\%  & 11.3\% & 4.5\%  \\
+\texttt{false\_limit\_value}         & 5  & 0.0\%  & 0.1\%  & 0.0\%  \\
+\texttt{nonexistent\_article}        & 4  & 0.0\%  & 0.0\%  & 0.0\%  \\
+\texttt{nonexistent\_category}       & 3  & 0.0\%  & 0.0\%  & 0.0\%  \\
+\texttt{graph\_absence\_articulo}    & 4  & 0.0\%  & 0.0\%  & 0.0\%  \\
+\texttt{graph\_absence\_categoria}   & 4  & 0.0\%  & 0.0\%  & 0.0\%  \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Two patterns hold across all three judges (Table~\ref{tab:profiler-by-strategy}).
+Every absence check backed by full enumeration or the full graph
+(\texttt{nonexistent\allowbreak\_article}, \texttt{nonexistent\allowbreak\_category},
+\texttt{graph\allowbreak\_absence\allowbreak\_articulo},
+\texttt{graph\allowbreak\_absence\allowbreak\_categoria}) shows a $0\%$ fail
+rate; only the retrieval-based absence check
+(\texttt{rag\_absence\_attempt}) ever succeeds against this assistant, and
+\texttt{graph\_edge\_false\_premise}, the second-largest strategy, converges
+tightly across all three judges.
+
+The judges diverge most on the two largest remaining strategies, for
+different reasons. On \texttt{rag\_absence\_attempt}, Qwen3.6-35B-A3B rates
+the assistant as failing markedly less often than Gemma and GLM-5.2, but
+this is also the one strategy where the underlying label is unreliable:
+Table~\ref{tab:engine-tradeoff} shows RAG's absence accuracy at generation
+time was $0.00$, so at least part of what any judge scores here may be RAG
+naming an entity that already exists rather than the assistant being
+fooled. We read this as a symptom of that upstream label noise, not yet a
+resolved finding about the assistant. On \texttt{grounded\_false\_fact}, the
+largest strategy in the dataset, Qwen3.6-35B-A3B again rates failures under
+half as often as the other two, but this strategy has no known label-noise
+issue to point to, so the gap looks like a genuine judge-severity
+difference, worth checking against human-labeled ground truth.
+
+\paragraph{What actually breaks this assistant.} Setting the label-noisy row aside, the
+table separates along one axis: what the false premise was built out of. Everything the
+assistant caught perfectly was \emph{invented} --- the four enumeration- or graph-confirmed
+absence strategies --- as was \texttt{false\_limit\_value}, which merely swaps a documented
+number for a wrong one. The only two strategies it ever failed construct their premise out
+of \emph{real law content}: a false relation between two genuine articles ($18.6$--$22.0\%$)
+and a false claim about a genuine article ($4.5$--$11.3\%$). Fabricated material is easy for
+it to reject; plausible distortions of the real document are what get through. Two
+qualifications keep this narrower than it sounds: the strategies at $0\%$ hold fifteen
+probes between them, so ``never failed'' cannot yet be told apart from ``undersampled'', and
+the two real-content strategies are also the only two with substantial $n$ (89 and 32) ---
+which is what makes the contrast suggestive rather than settled.
+
+\paragraph{Reasoning models on the judging side.} Section~\ref{sec:multimodel} showed what
+reasoning models buy as generators; as judges they cost something different. Their verdict
+cannot be read from the first generated token, which belongs to the reasoning trace, so it
+must be located by scanning the sequence, with a budget large enough to reach it: Qwen
+produced a comparable verdict on 33 of 40 probes at 1024 tokens versus 40 of 40 at 4096,
+agreeing with itself either way. More consequentially, whether a model can serve as a
+logprobs judge at all is a property of the serving provider, not the model --- across twelve
+model/provider combinations screened, Kimi-K2.x never returned usable logprobs and was
+dropped despite generating some of the best probes of Section~\ref{sec:multimodel}, while
+the \emph{same} Qwen weights failed on two providers and worked on a third. And ``reasoning''
+implies no common criterion: the two reasoning judges sit at opposite ends of
+Table~\ref{tab:profiler-judges}, GLM-5.2 strictest and Qwen most lenient, with the dense
+model between them.
+
+\subsection{Connecting the Exploiter: results with a verified judge}
+\label{sec:exploiter-integration}
+
+\paragraph{What the Profiler hands over.} The two stages are connected by a single
+artifact, and it is much smaller than the run that produced it. From the 151 graded
+probes the Profiler distils a \emph{profile}: on this run, 8 weakness entries --- each a
+principle, a natural-language descriptor of the failure pattern, and a score averaged over
+the three judges --- and 24 \emph{knowledge hooks}, the specific KB entities that broke the
+assistant, each tagged documented or undocumented. Nothing else crosses. The Exploiter
+never receives the 204 probes, the strategies, or the plugins; the strategy names are
+translated into the descriptors precisely because what travels must be readable prose
+rather than code identifiers. Those two lists are injected verbatim into the prompt of the
+category generator, which is required to induce every attribute it proposes from a weakness
+above threshold or from a named hook. This is the sense in which the search is
+\emph{profile-driven}: the Profiler does not tell the Exploiter what to ask, it tells it
+where to look.
+
+We ran the Exploiter's category-search training against the live assistant:
+four parallel LoRA policy-gradient runs, eight steps each, four categories
+per step, three queries per category (384 queries total), every response
+graded with the same verified SI/NO logprobs judge used throughout
+Section~\ref{sec:profiler-experiment} (\texttt{google/gemma-4-31B-it}) rather
+than a small self-evaluating model. A \emph{query} is one question sent to the assistant,
+scored $v$; a \emph{category evaluation} bundles three queries and combines their scores
+into one $S(c)$, so the run comprises $4 \times 8 \times 4 = 128$ evaluations over 384
+queries, and $\tau$ applies to $S(c)$ rather than to any individual $v$.
+Table~\ref{tab:exploiter-judge} reports the outcome.
+
+\begin{table}[ht]
+\centering
+\small
+\caption{Exploiter category search with the verified judge (4 runs, $\tau=0.35$).}
+\label{tab:exploiter-judge}
+\begin{tabular}{lr}
+\toprule
+Metric & Value \\
+\midrule
+Queries & 384 \\
+Distinct categories generated & 34 \\
+Categories passing $\tau$ & 0 \\
+Max $S(c)$ & 0.154 \\
+Queries checked against real KB text & 57.6\% \\
+Empty/malformed responses & 0.3\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+No category reached the reproducibility threshold $\tau=0.35$ across the 34
+distinct categories generated. Each response is checked against the real law
+text for whichever article number it cites, when it cites one; for the
+42.4\% of queries with no such citation, the judge has no document to check
+against and P(violation) reflects its own knowledge instead.
+
+Crossing $\tau$ is a demanding bar by construction, not only by outcome. The
+contract's 7 principle weights (Eq.~\ref{eq:violation}) are normalized to sum
+to 1; even the two most heavily weighted principles, \texttt{no\_fabricate}
+and \texttt{correct\_false\_premise}, both firing at full confidence on a
+single query reach only $v=0.343$, still under $\tau$. Crossing $\tau$ for
+one query needs at least three principles flagged with high confidence at
+once, and $S(c)$ additionally requires this to hold consistently across
+every query in the category. A near-miss score is evidence of partial,
+inconsistent, or single-principle signal, not proof the assistant is close
+to a confirmed failure, and ``0 categories passing'' should not be read as
+``the assistant is safe'' without checking this arithmetic first.
+
+Table~\ref{tab:exploiter-top-categories} lists the highest-scoring
+categories.
+
+\begin{table}[ht]
+\centering
+\small
+\caption{Highest-scoring categories generated (none passed $\tau=0.35$).}
+\label{tab:exploiter-top-categories}
+\begin{tabular}{lrr}
+\toprule
+Category theme & $S(c)$ & $n$ \\
+\midrule
+Fabrication cue; Art.\ 8 eligibility & 0.154 & 1 \\
+Gross income; unit sale price limit & 0.143 & 1 \\
+Gross-income calculation; eligibility & 0.099 & 2 \\
+Fabrication cue; Art.\ 8 eligibility & 0.061 & 3 \\
+Fabricated, undocumented entity & 0.050 & 2 \\
+Gross-income calculation; eligibility & 0.038 & 38 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Sporadic failures, not an absence of failures.} A category below $\tau$ does not
+mean the assistant answered correctly; it means it did not answer incorrectly
+\emph{often enough}. Separating those two readings is what scoring a category rather than a
+query is for, and this run separates them sharply: 33 of the 384 individual queries
+($8.6\%$) scored at or above $\tau$, while \emph{no} category evaluation did.
+
+The clearest instance is the theme the search converged on. The Exploiter asked, in nine
+different phrasings, what happens when a single service is billed at \$500,000. Four were
+answered correctly --- one citing the real \$68,000,000 ceiling for the top category --- and
+five were flagged, three of them above $\tau$, including the two highest-scoring queries of
+the entire run. Same assistant, same configuration, same question in substance: right four
+times, wrong five. A systemic failure would have been wrong nine times out of nine.
+
+The errors are not arbitrary either. In each one the assistant confuses two adjacent tables
+of the law, reading the \emph{monthly integrated tax} of Article 11 as the \emph{annual
+gross income} cap of Article 8: asked about \$500,000 of billing it answers Category~I,
+whose real income ceiling is \$49,250,000, because Article 11 lists \$437,500 there. The
+same column swap appears in four responses across three of the four independent runs ---
+sporadic in occurrence, entirely consistent in mechanism. Reporting only that no category
+crossed $\tau$, without also reporting that individual transcripts contain
+two-orders-of-magnitude errors, would misrepresent the result: the two findings call for
+different fixes, and $\tau$ is what distinguishes them.
+
+One scope limitation is specific to this assistant configuration: its
+identity, rules, and purpose fields are all empty, so it runs on retrieval
+grounding alone with no written instructions. Principles about scope or
+about revealing internal instructions have little to bite on here; the
+principles this run can actually speak to are fabrication, false-premise
+acceptance, and staleness.
+
+We read this as a validated integration with a validated grader: the real
+Profiler output drives category grounding, generation, live querying,
+refinement, and scoring end to end, with the same verified judge methodology
+used elsewhere in this paper, now checked against real law text rather than
+the judge's own unverified knowledge. It is not yet a validated finding at the level of
+Section~\ref{sec:profiler-experiment}, and the binding limitation is sample size. The
+distribution of evaluations per category is severely skewed: one category was evaluated 38
+times and 21 of the 34 exactly once. Because $S(c)$ subtracts a standard-error penalty from
+the mean, a category evaluated once or twice is unreliable in both directions at once ---
+its mean is noisy \emph{and} its penalty is estimated from almost nothing --- so the low
+scores in Table~\ref{tab:exploiter-top-categories} are not evidence of robustness. The same
+applies upstream, where five strategies rest on three to five probes each. More steps per
+run and more evaluations per category, until every category reaches an $n$ comparable to
+the largest, are not a refinement of this result: they are the precondition for having
+one.
+
+\paragraph{What the Exploiter returns.} The run yields three artifacts, and the third is
+the one that outlives it. A \emph{failure report} ranks every generated category by $S(c)$
+with its evaluation count and representative examples --- the view summarized in
+Table~\ref{tab:exploiter-top-categories}. A \emph{history} records each category evaluation
+in full: the attributes proposed, the three queries, the three responses, the per-principle
+grader rationale, and the realism and on-profile checks, which is what makes a score
+auditable rather than merely reported. And the \emph{Roast Dataset} stores one record per
+query --- the question, the assistant's answer, the violation score, the principles charged,
+and the article of the law the grader checked against.
+
+That last artifact is the deliverable. It converts a one-off audit into a regression suite:
+the same cases can be replayed against a modified assistant, and a fix is demonstrated by
+the scores that move. It is also what a team can act on, since the report is not a number
+but a list of concrete transcripts attached to the law text that contradicts them. What the
+Exploiter does \emph{not} return is a diagnosis: it localizes failures to categories and
+entities, and reading the transcripts to determine why the assistant erred remains a human
+step.
+
+\paragraph{A limitation worth stating plainly.} Every fail rate and $S(c)$
+score in this section comes from LLM judges that have not been validated
+against human-labeled ground truth. We do not yet know how closely
+$P(\text{violation})$ tracks what a human reviewer would call a real
+failure. The cross-judge agreement reported in Section~\ref{sec:profiler-experiment}
+is reassuring, but it shows the judges agree with each other, not that they
+agree with a human. Auditing the judge against a human-labeled sample is
+necessary before treating these numbers as a validated evaluation metric,
+rather than a first, judge-only measurement.
+
+\subsection{Reproducibility}
+
+All code, configuration, and the canonical result artifacts referenced in this
+section are versioned in a public repository, \url{\repourl} (branch
+\texttt{feat/roast-me}, under \texttt{papers/2026-06-roastme/experiments/}); the
+notebooks in \texttt{experiments/jupyter/} load the same versioned data shown
+here directly, with no API key required.
+
 % \section{Implementation Considerations}
 % \section{Conclusion}
 
+\clearpage
 \bibliographystyle{plainnat}
 \bibliography{references}
 
