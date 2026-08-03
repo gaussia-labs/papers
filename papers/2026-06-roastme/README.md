@@ -10,7 +10,6 @@ that searches for reproducible *categories* of natural queries that break it.
 2026-06-roastme/
 ├── roastme.tex / roastme.pdf   # the paper
 ├── references.bib
-├── METRICAS-ROASTME.md         # every formula in the paper, in plain language
 └── results/                    # the frozen artifacts behind every number reported
 ```
 
