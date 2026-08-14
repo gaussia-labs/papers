@@ -13,6 +13,7 @@
 \usepackage[numbers,sort&compress]{natbib}
 \usepackage{booktabs}
 \usepackage{tabularx}
+\usepackage{multirow}
 \usepackage{xcolor}
 \usepackage{fancyhdr}
 \usepackage{enumitem}
@@ -141,9 +142,14 @@ derived interpretation cites them through provenance. Because wrong knowledge
 must be removable without punching holes in the current snapshot, we specify how
 non-episodic modules drop blocks, rebuild their Merkle DAGs, and cascade through
 provenance, with a privileged cascade when the dropped block is canonical, and
-with redaction reserved for destroying retained bytes. This first version
-fixes the boundaries and responsibilities of the architecture and leaves
-concrete block schemas, wire formats, and algorithms for later validation.
+with redaction reserved for destroying retained bytes. Beyond the architecture,
+this version fixes the wire formats an independent implementation needs in order
+to interoperate: the block envelope and its canonical serialization, the Merkle
+construction and its layout identifier, the composition and snapshot documents,
+the OCI media types and annotations, the ingestion and query contracts, and a
+conformance kit of golden vectors. What remains open is authenticity: the
+protocol establishes that an artifact is intact, not who produced it, and it
+defines no reconciliation for two brains that diverged.
 \end{abstract}
 
 \keywords{knowledge representation, retrieval-augmented generation, content
@@ -209,13 +215,37 @@ This work makes the following contributions:
   cascade for non-episodic modules, a privileged cascade when canonical evidence
   is excluded, supersession for episodic memory, pruning of unreachable blocks,
   and redaction when retained bytes must be destroyed.
+  \item A normative encoding for all of the above: the block envelope and its
+  canonical serialization (Section~\ref{sec:serialization}), the Merkle
+  construction and its layout identifier (Section~\ref{sec:merkle}), the
+  composition and snapshot documents (Sections~\ref{sec:composition-doc}
+  and~\ref{sec:snapshot}), the schema-versioning rules that let old clients read
+  new brains (Section~\ref{sec:schema-versioning}), and a conformance kit of
+  golden vectors (Section~\ref{sec:conformance}).
 \end{enumerate}
 
 \paragraph{Scope of this version.}
-This document fixes an initial conceptual architecture. It deliberately does
-not close the exact schema of each block, the consolidation algorithm, the
-size of packs, or the concrete index engine. The goal is to establish
-boundaries and responsibilities that later, more concrete work can validate.
+This document fixes both an architecture and the interoperability surface that
+follows from it. Everything two independent implementations must agree on to
+exchange a brain is normative here: the block envelope, the canonical
+serialization, the Merkle construction, the composition and snapshot documents,
+the distribution encoding, and the ingestion and query contracts
+(Section~\ref{sec:conformance} states how an implementation demonstrates
+agreement). What stays deliberately open is what an implementation may choose
+without breaking exchange: consolidation and contradiction-detection
+strategies, ranking and fusion, index engines, and pack sizing. Two questions
+remain open in the normative surface itself, and Section~\ref{sec:conclusion}
+states them as such: authenticity of authorship, and reconciliation of diverged
+brains.
+
+\paragraph{Notational conventions.}
+The key words \textbf{MUST}, \textbf{MUST NOT}, \textbf{SHOULD}, and
+\textbf{MAY} are used as defined in RFC 2119~\cite{rfc2119}. A
+\emph{conforming implementation} is one that satisfies every MUST in this
+document for the roles it claims (Section~\ref{sec:conformance}). Documents are
+shown as JSON for readability; the bytes that are hashed are always the
+canonical serialization of Section~\ref{sec:serialization}, never the
+pretty-printed form.
 
 \begin{figure}[t]
 \centering
@@ -653,6 +683,38 @@ key to answering what must be recomputed when a source changes, and it is the
 ledger of removals: every drop, cascade, and redaction is recorded there so
 that exclusion stays auditable (Section~\ref{sec:forgetting}).
 
+Provenance is not free-form annotation. It carries six kinds of record
+(Table~\ref{tab:provenance}), and the set is closed because every other part of
+the protocol depends on being able to ask a precise question of it: which blocks
+cite this evidence, what produced this block, and what was removed by whom.
+
+\begin{table}[htb]
+\centering
+\caption{The provenance records, and what each one makes answerable.}
+\label{tab:provenance}
+\begin{tabularx}{\textwidth}{lY}
+\toprule
+\textbf{Record} & \textbf{What it states} \\
+\midrule
+Registration  & A source was incorporated: by which actor, when, from where, and under what license or retention policy. \\
+Normalization & A normalized view was produced from an original by a named deterministic pipeline. \\
+Derivation    & A block was derived from cited evidence by a named producer, within a named task. \\
+Supersession  & A block takes precedence over an earlier one. \\
+Demotion      & A block's retrieval priority was reduced, without removing it. \\
+Removal       & A block was excluded, pruned, or redacted: by which mechanism, actor, and reason. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Two distinctions inside these records carry weight elsewhere. An \emph{actor} is
+who performed an operation, while a \emph{producer} is what generated a derived
+block, recorded at the granularity a batch invalidation needs: a model, a
+pipeline, an ingestion batch, or an actor. That granularity is what makes
+Section~\ref{sec:drop}'s batch invalidation expressible as a query over
+provenance rather than as a second mechanism. And because registration records
+live here rather than inside canonical blocks, re-registering an identical
+source deduplicates while still recording that a second actor incorporated it.
+
 % ===========================================================================
 \section{Anatomy of a Module}
 \label{sec:anatomy}
@@ -697,17 +759,92 @@ derived and can be rebuilt from the blocks.}
 \end{figure}
 
 \subsection{Knowledge blocks}
+\label{sec:blocks}
 
 A block is a logical unit of knowledge with a deterministic serialization. It
 may be an episode, a concept, a fact, a relation, a procedure, or a canonical
 fragment. Its identifier is computed from its content:
 \begin{equation}
-  \texttt{block\_id} = \mathrm{SHA\text{-}256}\bigl(\texttt{canonical\_serialization(block)}\bigr).
+  \texttt{block\_id} = \mathrm{SHA\text{-}256}\bigl(\texttt{canonical\_serialization(envelope)}\bigr).
 \end{equation}
 If the content changes, a new block is born. The previous one may be kept for
 history, audit, or rollback.
 
+\paragraph{The envelope.}
+What is hashed is not the payload alone but an \emph{envelope} that carries
+exactly five keys:
+\begin{verbatim}
+{
+  "boltzmann":      1,
+  "memory_type":    "semantic",
+  "payload":        { ... },
+  "schema_version": 1,
+  "serialization":  "jcs/1"
+}
+\end{verbatim}
+A conforming implementation MUST reject an envelope carrying any other key, or
+missing any of these. Binding the memory type and the schema version into the
+hash is what makes identity self-describing: the same payload read as an episode
+and as a semantic fact is two different blocks, and stored bytes can be decoded
+without consulting anything outside them.
+
+Everything derived, physical, or actor-dependent stays outside the envelope: the
+storage location, the index state, and the moment of registration are not part of
+what a block \emph{is}. This is the same argument that keeps canonical blocks
+free of registration metadata (Section~\ref{sec:modules}), applied uniformly.
+
+\paragraph{Two conventions that keep identity unambiguous.}
+An absent optional field MUST be omitted from the payload rather than serialized
+as \texttt{null}, so that \texttt{\{"a":1\}} and \texttt{\{"a":1,"b":null\}} are
+the same block rather than two blocks with the same meaning. Blocks MUST be
+treated as frozen: correcting a block means creating a new one.
+
+\paragraph{Content a block names but does not carry.}
+A payload is JSON, so a block whose datum is large or binary (a PDF, an audio
+file, a repository archive) names it by digest and leaves the bytes in the
+store. A block therefore has a set of \emph{content digests}, possibly empty.
+Every operation that must account for those bytes, namely packing a layer,
+marking reachability before a prune, and destroying bytes on redaction, MUST
+consult that set rather than inspect the block's type, so that a schema which
+starts naming content is handled correctly by all of them at once.
+
+\paragraph{Decoding.}
+A conforming implementation MUST verify, when decoding stored bytes, that
+re-serializing the decoded block reproduces those bytes exactly. Bytes that are
+not already in canonical form would hash to a different \texttt{block\_id} than
+the one under which they are stored, so they MUST be rejected rather than
+silently normalized.
+
+\subsection{Canonical serialization}
+\label{sec:serialization}
+
+Two clients that disagree on serialization compute different identifiers for the
+same knowledge, and then deduplication never triggers, structural sharing stops
+working, and two parties holding identical knowledge cannot tell that they do.
+The serialization is therefore normative, and it is named in every envelope so
+that a future one can coexist with it rather than replace it.
+
+This version uses \textbf{JCS}, the JSON Canonicalization Scheme of RFC
+8785~\cite{rfc8785}: object keys sorted by UTF-16 code point, no insignificant
+whitespace, and a fixed number format. Its identifier is \texttt{jcs/1}. JCS was
+chosen over a binary encoding because a block is a small structured record and
+the protocol is meant to be implemented in several languages: a canonical form
+that a human can read and grep is worth more here than compactness, and RFC 8785
+has independent implementations across the language ecosystems a client is
+likely to be written in.
+
+\begin{callout}[title=Two value domains are excluded from a payload]
+JCS defines float serialization through ECMAScript rules that are subtly hard to
+reproduce identically across languages, and integers outside the IEEE-754 safe
+range ($\pm(2^{53}-1)$) lose precision in any JSON parser backed by doubles.
+Either divergence would mean two conforming clients computing different
+\texttt{block\_id} values for the same knowledge. Both MUST therefore be
+rejected when a block is constructed, rather than at hashing time. Represent a
+decimal as a string, or as an integer scaled by a documented factor.
+\end{callout}
+
 \subsection{Merkle DAG}
+\label{sec:merkle}
 
 On their own, blocks are just a bag of content-addressed units: each is
 addressable by its hash, but nothing names, verifies, or diffs a whole
@@ -728,6 +865,47 @@ of a single block is proven with the sibling hashes along its path to the root
 module. \emph{Differencing} two versions compares roots top-down and descends
 only where child hashes differ, so the cost is proportional to what changed,
 not to the size of the module.
+
+\paragraph{The construction is normative.}
+Roots are only comparable between clients that compute them the same way, so the
+construction is fixed rather than left to an implementation. A conforming
+implementation MUST use the Merkle Tree Hash of RFC 9162, Section
+2.1.1~\cite{rfc9162}, over the module's block identifiers, with two properties
+that matter for security and for the guarantees claimed above:
+
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Domain separation.} Leaves are hashed with a \texttt{0x00}
+  prefix and internal nodes with \texttt{0x01}, so a leaf hash can never be
+  mistaken for a node hash.
+  \item \textbf{Unambiguous splitting.} The tree splits at the largest power of
+  two below $n$. The naive alternative, duplicating the last node on an odd
+  level, admits a second-preimage attack in which two distinct leaf sets produce
+  the same root~\cite{cve2012merkle}, which would defeat the whole point of
+  identifying a version by its root.
+\end{itemize}
+
+\paragraph{Leaves are sorted.}
+Leaves MUST be deduplicated and ordered by their digest before the tree is
+built. Sorting is what makes the root a pure function of the \emph{set} of
+blocks, which is precisely the claim that two parties who assembled the same
+blocks obtain the same root. A layout that preserved insertion order would break
+that claim while looking correct in every single-writer test.
+
+\paragraph{The layout identifier.}
+The construction is named \texttt{rfc6962-sorted/1}, and that identifier travels
+with every composition and module reference. A client that meets a composition
+built under a layout it does not implement MUST refuse it rather than
+recompute a root that would not be comparable. The name keeps its historical
+form: RFC 9162 obsoletes RFC 6962 but defines the same tree, with the same empty
+hash, the same prefixes, and the same split, so a root computed under either
+reading is byte-identical. The version suffix is what moves if the construction
+ever does.
+
+\paragraph{What is persisted.}
+Only the sorted leaf list and the root are stored. Internal nodes are
+scaffolding derived on demand, so there is nothing to keep in sync, and
+differencing two versions is a set operation over leaf lists rather than a
+descent through stored nodes.
 
 \paragraph{Why a DAG rather than a tree.}
 Because blocks are shared across versions. When a new version reuses unchanged
@@ -793,7 +971,106 @@ or transported. Two parties that assembled the same blocks obtain the same root
 and can verify they hold identical knowledge; the OCI digest, by contrast,
 identifies a particular physical file or manifest.
 
+\subsection{The composition document}
+\label{sec:composition-doc}
+
+A Merkle root commits to a set of blocks but \emph{cannot be inverted back into
+it}. This is easy to overlook and structurally decisive: a version identified by
+its root alone can be verified and not reopened. Given a root, a client can
+confirm that a leaf list it already holds is the right one, but it cannot
+recover that list from the root. Something has to store the leaves.
+
+That something is the \emph{composition document}: the persisted set of block
+identities that a root commits to. It carries the protocol version, the memory
+type it belongs to, the Merkle layout that produced the root, and the leaf list
+in canonical order:
+\begin{verbatim}
+{
+  "boltzmann":   1,
+  "memory_type": "semantic",
+  "layout":      "rfc6962-sorted/1",
+  "block_ids":   ["sha256:K1", "sha256:K2", "sha256:K3"]
+}
+\end{verbatim}
+Storing it is not redundant with the root: the root is the \emph{claim} about a
+version, and the document is what makes the claim resolvable. This document is
+what a module layer carries when a brain is published
+(Section~\ref{sec:distribution}), and it is the object every removal mechanism
+actually operates on. A drop does not mutate a block; it produces a new
+composition, and therefore a new root (Section~\ref{sec:drop}).
+
+A composition MUST be immutable: every operation over it yields a new
+composition rather than modifying one in place, so that a root already handed to
+a consumer can never change underneath it. A conforming implementation MUST
+refuse a composition document whose declared layout it does not implement, and
+MUST refuse one whose declared protocol version it does not implement.
+
+\subsection{The snapshot}
+\label{sec:snapshot}
+
+A module root identifies one module. A brain is several modules at once, and
+nothing said so far names the combination. The \emph{snapshot} is that document:
+it states, for each installed module, which version of it this brain currently
+is.
+
+\begin{verbatim}
+{
+  "boltzmann":  1,
+  "modules": {
+    "canonical": { "root":            "sha256:AAA",
+                   "composition":     "sha256:AAAdoc",
+                   "block_count":     412,
+                   "layout":          "rfc6962-sorted/1" },
+    "semantic":  { "root":            "sha256:CCC2",
+                   "composition":     "sha256:CCC2doc",
+                   "block_count":     1907,
+                   "layout":          "rfc6962-sorted/1",
+                   "embedding_model": "bge-m3@1.5" }
+  },
+  "created_at": "2026-07-24T10:15:00Z",
+  "parent":     "sha256:PREVIOUS_SNAPSHOT",
+  "labels":     { "release": "v8" }
+}
+\end{verbatim}
+
+Each module reference carries the root (its logical identity), the digest of the
+composition document (so the version can be reopened, not merely verified), the
+block count, the layout, and, when a vector index travels with the module, the
+embedding model and version that produced it
+(Section~\ref{sec:indices-derived}).
+
+Three properties of this document do most of the work in the rest of the paper.
+
+\paragraph{It is the unit of atomic change.}
+Adding one semantic block also advances provenance, and a canonical drop can
+advance three modules at once (Section~\ref{sec:drop}). Those are still
+\emph{one} version of the brain. A conforming implementation MUST advance every
+affected module in a single successor snapshot rather than one at a time:
+minting intermediate snapshots that were never published would leave the parent
+chain pointing at documents no consumer can resolve.
+
+\paragraph{It is a chain.}
+The \texttt{parent} field names the snapshot this one succeeds, so the history
+of a brain is an auditable chain of versions rather than a sequence of
+unrelated roots. This is what a consumer walks to tell whether a remote brain is
+ahead of, behind, or diverged from a local one
+(Section~\ref{sec:local-state}).
+
+\paragraph{It is a subset, not necessarily the whole.}
+A brain may hold only some modules, because selective installation is the point
+of packaging each module separately (Section~\ref{sec:distribution}). A snapshot
+therefore names the modules that are installed, and an operation against a
+module that is absent MUST fail with a distinguishable error rather than be
+treated as an empty module.
+
+\paragraph{Which level of hash identifies a snapshot.}
+The snapshot document is a transportable file, so its own identity is an OCI
+digest, not a fourth kind of hash (Section~\ref{sec:hashes}). It is made
+\emph{of} Merkle roots and is identified \emph{by} an OCI digest, and keeping
+those two straight is the whole point of the three-level separation.
+
 \subsection{Indices}
+\label{sec:indices-derived}
 
 Indices are derived: they can be rebuilt from the blocks. They may travel
 inside the same module so that each consumer need not recompute them, but they
@@ -851,6 +1128,7 @@ coincidence: the \emph{semantic} module denotes general, consolidated knowledge
 (as opposed to episodic memory), not an embedding-based representation.
 
 \subsection{Three levels of hashes}
+\label{sec:hashes}
 
 A recurring source of confusion is that the same cryptographic algorithm is
 used for three different kinds of identity. Table~\ref{tab:hashes} separates
@@ -866,7 +1144,8 @@ them.
 \midrule
 Block hash  & A logical unit of knowledge.          & \texttt{sha256:FOURIER\_CONCEPT} \\
 Merkle root & The logical composition of a module.  & \texttt{sha256:SEMANTIC\_ROOT\_V7} \\
-OCI digest  & The published physical blob or manifest. & \texttt{sha256:OCI\_MODULE\_BLOB} \\
+OCI digest  & Any transportable file: a published blob, a manifest, or one of
+              the protocol's own documents. & \texttt{sha256:OCI\_MODULE\_BLOB} \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -875,6 +1154,55 @@ These values may use the same algorithm, but they do not represent the same
 thing. The block hash is \emph{knowledge identity}; the Merkle root is the
 identity of a \emph{logical snapshot}; the OCI digest is the identity of a
 transportable \emph{file or manifest}.
+
+The composition and snapshot documents of Sections~\ref{sec:composition-doc}
+and~\ref{sec:snapshot} are worth locating explicitly on this scale, because both
+are made of lower-level identities while being identified at the third level.
+A composition document \emph{contains} block hashes and \emph{is} an OCI digest;
+a snapshot document \emph{contains} Merkle roots and composition digests and
+\emph{is} an OCI digest. Neither introduces a fourth level. The rule is that a
+level is determined by what a value identifies, not by what it is computed over.
+
+\subsection{Schema versions and forward compatibility}
+\label{sec:schema-versioning}
+
+Block schemas evolve: a memory type acquires a field, and blocks written
+afterwards are not shaped like the ones written before. Because
+\texttt{schema\_version} sits inside the envelope, and therefore inside
+\texttt{block\_id}, this is not a cosmetic concern. Three rules keep an evolving
+brain readable.
+
+\paragraph{A version is a statement, not a preference.}
+A block MUST be written under the \emph{oldest} registered schema its payload
+satisfies, and the proposer of a block does not get to choose. Writing under the
+newest schema instead would mean that introducing a schema silently re-versions
+every block written afterwards, including blocks that use nothing the new schema
+added, making an artifact unreadable to consumers that had not upgraded in order
+to record knowledge those consumers could have read perfectly well.
+Oldest-that-fits inverts this: a brain stops being readable by an older client
+only at the point where it genuinely uses something that client has no schema
+for.
+
+\paragraph{An unknown version MUST fail loudly.}
+A block declaring a schema version a client does not implement was written by a
+newer implementation. The schema cannot be inferred from the bytes, so the
+client MUST refuse the block and say so, rather than parse what it recognizes
+and drop the rest.
+
+\paragraph{The refusal must be possible before the download.}
+Which schema versions a module holds is declared on the published artifact
+(Section~\ref{sec:distribution}). The information was always \emph{in} the
+brain, since every envelope names its version, but only reachable by fetching
+and parsing blocks, which is to say after a download the consumer may not be
+able to use. Declaring it up front lets a client refuse a brain it cannot read
+before transferring a byte, and say why.
+
+This is a different question from the protocol version, and the two MUST stay
+separate. The protocol version asks whether this is a Boltzmann artifact at all;
+the schema version asks whether this client has the schemas for the knowledge
+inside it. A brain using a schema a consumer lacks is still a brain, so that
+consumer MUST still be able to install the modules it \emph{can} read, which a
+protocol-level refusal could not express.
 
 % ===========================================================================
 \section{Distribution with OCI Artifacts}
@@ -913,18 +1241,93 @@ knowledge blocks.}
 
 \subsection{Complete brain}
 
-A brain can be published as an OCI Artifact that references one blob per
+A brain is published as an OCI Artifact whose \emph{config blob is the snapshot
+document itself} (Section~\ref{sec:snapshot}) and which carries one layer per
 module:
 \begin{verbatim}
-brain:v3
-  canonical  -> sha256:AAA
-  episodic   -> sha256:BBB
-  semantic   -> sha256:CCC
-  procedural -> sha256:DDD
-  provenance -> sha256:EEE
+manifest  artifactType: application/vnd.gaussia.boltzmann.brain.v1+json
+  config  -> the snapshot document
+  layers
+    canonical  -> sha256:AAA   annotations: memory-type, merkle-root,
+    episodic   -> sha256:BBB                merkle-layout, block-count
+    semantic   -> sha256:CCC
+    procedural -> sha256:DDD
+    provenance -> sha256:EEE
+    (vector index layers, when one travels)
 \end{verbatim}
-The OCI manifest is small. Downloading the manifest does not imply downloading
-all modules.
+The OCI manifest is small, and downloading it does not imply downloading any
+module. Making the snapshot the config blob means the same document is both the
+local state and the wire format, so publishing is a transfer rather than a
+conversion.
+
+\paragraph{Media types.}
+Two clients that disagree on media types cannot pull each other's brains, so
+these are normative rather than left to an implementation
+(Table~\ref{tab:mediatypes}).
+
+\begin{table}[htb]
+\centering
+\caption{Normative media types.}
+\label{tab:mediatypes}
+\begin{tabularx}{\textwidth}{lY}
+\toprule
+\textbf{Role} & \textbf{Media type} \\
+\midrule
+Artifact type & \texttt{application/vnd.gaussia.boltzmann.brain.v1+json} \\
+Config (snapshot) & \texttt{application/vnd.gaussia.boltzmann.snapshot.v1+json} \\
+Module layer & \texttt{application/vnd.gaussia.boltzmann.module.\{type\}.v1.tar+gzip} \\
+Vector index layer & \texttt{application/vnd.gaussia.boltzmann.index.vector.v1+bin} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+A module layer is a tar archive holding the module's composition document and
+its block bytes. Both the tar and the compression stream MUST be written
+deterministically, so that two clients packing the same module produce
+byte-identical layers; without that, registry deduplication silently stops
+working and every publish transfers blobs the registry already holds. Gzip is
+specified rather than a denser codec because it is universally available: a
+client that needed an extra dependency to read a published brain would be
+trading portability for a few percent.
+
+\paragraph{Annotations.}
+The manifest carries what a consumer needs in order to decide \emph{before}
+downloading (Table~\ref{tab:annotations}).
+
+\begin{table}[htb]
+\centering
+\caption{Manifest and layer annotations, all prefixed \texttt{ai.gaussia.boltzmann}.}
+\label{tab:annotations}
+\begin{tabularx}{\textwidth}{lY}
+\toprule
+\textbf{Annotation} & \textbf{What it declares} \\
+\midrule
+\texttt{memory-type}      & Which module a layer holds. This is what a selective install resolves on. \\
+\texttt{merkle-root}      & The layer's internal Merkle root. \\
+\texttt{merkle-layout}    & The construction that produced the root; roots are comparable only between clients that agree here. \\
+\texttt{block-count}      & How many blocks the composition holds. \\
+\texttt{protocol-version} & Which protocol version the artifact conforms to. \\
+\texttt{schema-versions}  & Which block schema versions each module holds (Section~\ref{sec:schema-versioning}). \\
+\texttt{embedding-model}  & Model and version behind a vector index layer. \\
+\texttt{index-kind}       & Which kind of index a travelling index layer carries. \\
+\texttt{source-snapshot}  & The publisher's full snapshot this artifact was projected from. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The \texttt{merkle-root} annotation deserves emphasis because it is deliberately
+distinct from the descriptor's own digest, and that distinction is the third
+level of Section~\ref{sec:hashes} made operational. The digest identifies the
+transportable file; the root identifies the logical composition inside it. Two
+registries holding the same brain agree on digests while knowing nothing about
+modules or snapshots, which is exactly the gap Section~\ref{sec:composition}
+identified in composing OCI with a retrieval stack. This annotation closes it.
+
+The \texttt{source-snapshot} annotation handles publishing a subset of modules.
+Such an artifact's config carries a \emph{reduced} snapshot, which by
+construction is not in the publisher's own history, so without recording the
+snapshot it was projected from, pushing a projection back to the same tag would
+look like a divergence when nothing diverged.
 
 \subsection{Selective installation}
 
@@ -962,6 +1365,53 @@ OCI contributes storage, registry authentication, transport, digest-based
 deduplication, and tags. Boltzmann Brain contributes the meaning of the
 modules, the blocks inside them, and their query contract.
 
+\subsection{Local state, atomicity, and divergence}
+\label{sec:local-state}
+
+Everything described so far is content-addressed and immutable. A working brain
+needs exactly one piece of mutable state: a pointer saying which snapshot is
+current. Isolating it to a single pointer is what makes a commit atomic, and it
+is the only place where the ordering of writes matters.
+
+\paragraph{Commit is a pointer move.}
+A conforming implementation MUST write every blob a new snapshot references
+before moving the pointer, and MUST move the pointer last. Blobs written and
+never referenced are unreachable and will be reclaimed by pruning
+(Section~\ref{sec:forgetting}); a pointer moved before its blobs exist would
+name a state that cannot be resolved. The asymmetry is the whole reason a commit
+can be interrupted without corrupting a brain.
+
+\paragraph{Retained roots.}
+Alongside the current snapshot, a brain keeps a set of retained snapshots:
+tagged releases plus a bounded number of recent ones. This set is what
+reachability is computed from when pruning reclaims blocks
+(Section~\ref{sec:forgetting}), and it is what gives ``a retained root'' a
+precise meaning rather than an intuitive one.
+
+\paragraph{Origin.}
+A brain pulled from a registry MUST record where it came from: the repository
+reference, the tag, the snapshot the remote was on at pull time, and whether the
+install was partial. The recorded remote snapshot is what a later publish
+compares against. Content addressing alone would not protect a publisher here:
+overwriting a tag leaves every blob in place, but if no retained root names
+them, the work is gone in the only sense that matters.
+
+\paragraph{Divergence is detected, not resolved.}
+Before publishing, an implementation MUST compare the remote snapshot against
+the local chain. If the remote is an ancestor of the local snapshot, the publish
+fast-forwards. If it is not, the two brains have diverged, and the
+implementation MUST refuse the publish and report where the histories parted,
+rather than overwrite.
+
+This is where the protocol currently stops. A snapshot names one parent, so a
+merge is not representable, and this document defines no reconciliation for two
+brains that both advanced from a common ancestor. Refusing is the safe behavior,
+not a complete one: it leaves the operator to reconcile by hand, and it means
+that a partial install can never be published back over the tag it came from,
+because doing so would quietly drop the modules that were never fetched.
+Section~\ref{sec:conclusion} states reconciliation as one of the two open
+problems this version leaves.
+
 % ===========================================================================
 \section{The Boltzmann Protocol}
 \label{sec:protocol}
@@ -972,28 +1422,99 @@ paths, query and ingestion. Boltzmann Brain is therefore delivered as a
 protocol rather than as a deployable service or container image: the brain is
 portable data, and any client that speaks the protocol can read and extend it.
 The protocol includes no LLM of its own; it governs structure, identity,
-validation, indices, snapshots, and distribution. Concretely, it defines
-operations to:
+validation, indices, snapshots, and distribution.
 
-\begin{itemize}[leftmargin=1.4em]
-  \item Discover installed modules, versions, and Merkle roots.
-  \item Open B\textsuperscript{+}, lexical, vector, and graph indices.
-  \item Resolve a \texttt{block\_id} to its physical location and verify its hash.
-  \item Register, replace, and drop canonical sources; record provenance and
-  \texttt{derived\_from} relations.
-  \item Define processing tasks and output schemas for an external LLM.
-  \item Validate candidate blocks before they are incorporated into the brain.
-  \item Update Merkle DAGs, indices, and snapshots.
-  \item Drop, supersede, demote, collect, and redact blocks under an explicit
-  policy; a drop rebuilds the affected Merkle DAGs and cascades through
-  provenance (Section~\ref{sec:forgetting}).
-  \item Publish new versions as OCI Artifacts.
-  \item Be exposed through a skill, MCP, CLI, or API.
-\end{itemize}
+The operations divide into four \emph{roles}. The division is not decorative: a
+role is the unit of conformance (Section~\ref{sec:conformance}) and the unit of
+capability. A brain published for consumption needs only the reading role
+implemented on the consumer's side, and a client that never writes need not
+implement validation at all. Table~\ref{tab:operations} states the surface.
+
+\begin{table}[htb]
+\centering
+\caption{Protocol operations by role. Every operation is defined over an
+installed snapshot; none of them requires a running service.}
+\label{tab:operations}
+\begin{tabularx}{\textwidth}{llY}
+\toprule
+\textbf{Role} & \textbf{Operation} & \textbf{What it does} \\
+\midrule
+\multirow{7}{*}{Reader}
+  & \texttt{snapshot}      & Report the current snapshot and its installed modules. \\
+  & \texttt{root\_of}      & Report the Merkle root of one installed module. \\
+  & \texttt{open\_index}   & Open an index of a named kind over a module. \\
+  & \texttt{resolve}       & Resolve a \texttt{block\_id} to its bytes, verifying the hash. \\
+  & \texttt{prove}         & Produce an inclusion proof of a block in a module. \\
+  & \texttt{resolvability} & Report which blocks are resolvable and which are tombstoned. \\
+  & \texttt{search}        & Answer a query with an Evidence Bundle (Section~\ref{sec:query}). \\
+\midrule
+\multirow{5}{*}{Writer}
+  & \texttt{register}      & Preserve a source as canonical evidence, with provenance. \\
+  & \texttt{replace}       & Register a new edition and record supersession. \\
+  & \texttt{define\_task}  & Emit a processing task for an external model. \\
+  & \texttt{validate}      & Judge candidate blocks against the protocol's checks. \\
+  & \texttt{commit}        & Incorporate validated candidates and advance the snapshot. \\
+\midrule
+\multirow{6}{*}{Retention}
+  & \texttt{drop}          & Exclude blocks from a module, cascading through provenance. \\
+  & \texttt{drop\_by\_producer} & Exclude everything a given model, pipeline, batch, or actor produced. \\
+  & \texttt{supersede}     & Record that a newer block takes precedence. \\
+  & \texttt{demote}        & Reduce a block's retrieval priority without removing it. \\
+  & \texttt{prune}         & Reclaim blocks no retained root still references. \\
+  & \texttt{redact}        & Destroy bytes a retained root still names, under policy. \\
+\midrule
+\multirow{3}{*}{Distribution}
+  & \texttt{pack}          & Materialize the current snapshot as an OCI Artifact locally. \\
+  & \texttt{push}          & Publish, refusing to overwrite a diverged remote (Section~\ref{sec:local-state}). \\
+  & \texttt{pull}          & Install an artifact, optionally only some modules. \\
+\bottomrule
+\end{tabularx}
+\end{table}
 
 Because these are protocol operations rather than a bundled engine, they can be
 implemented independently and in any language, and the brain never depends on a
-particular process being kept running.
+particular process being kept running. \texttt{pack} in particular is defined to
+produce the same on-disk layout that a registry would serve, so that any OCI
+tool can copy the result without implementing this protocol at all.
+
+\paragraph{Protocol version.}
+Every block envelope, composition document, snapshot, and published manifest
+declares the protocol version it conforms to. A client that meets a document
+declaring a version it does not implement MUST refuse it and say so. This is a
+coarser check than schema versioning (Section~\ref{sec:schema-versioning}) and
+answers a different question: not ``can I read this knowledge'' but ``is this a
+Boltzmann artifact at all''.
+
+\paragraph{Failures are typed.}
+An implementation MUST distinguish, and report distinguishably, at least the
+conditions in Table~\ref{tab:failures}. Collapsing them into a generic error
+defeats guarantees stated elsewhere in this document: a consumer that cannot
+tell a redacted block from a corrupted one has lost the property
+Section~\ref{sec:erasure-verifiability} requires, and one that cannot tell an
+uninstalled module from an empty one will silently answer queries from a subset
+of the brain it thinks it has.
+
+\begin{table}[htb]
+\centering
+\caption{Failure conditions a conforming implementation must distinguish.}
+\label{tab:failures}
+\begin{tabularx}{\textwidth}{lY}
+\toprule
+\textbf{Condition} & \textbf{Meaning} \\
+\midrule
+Unknown schema        & The block's schema version is not implemented here. \\
+Block not found       & The identity is not held by this brain. \\
+Block tombstoned      & The identity is known; the bytes were destroyed by redaction. \\
+Integrity failure     & Stored bytes do not hash to the identity they claim. \\
+Inclusion proof failure & A membership proof does not reconstruct the root. \\
+Module not installed  & The snapshot does not name this module. \\
+Append-only violation & A drop was attempted on the episodic module. \\
+Membership failure    & A returned block is not in the installed snapshot. \\
+Policy refusal        & The retention policy does not authorize this removal. \\
+Divergence            & The remote is not an ancestor of the local snapshot. \\
+\bottomrule
+\end{tabularx}
+\end{table}
 
 \subsection{The boundary between the protocol and the external LLM}
 
@@ -1094,23 +1615,95 @@ LLM. The task identifies the source, the instructions, the allowed memory
 types, the required references, and the exact output schema:
 \begin{verbatim}
 {
-  "operation": "extract_knowledge",
-  "source": "sha256:PDF123",
+  "operation":            "extract_knowledge",
+  "source":               "sha256:PDF123",
   "allowed_memory_types": ["episodic", "semantic", "procedural"],
-  "requirements": ["cite source ranges", "do not invent"],
-  "output_schema": "boltzmann.candidates/v1"
+  "requirements":         ["cite source ranges", "do not invent"],
+  "output_schema":        "boltzmann.candidates/v1",
+  "task_id":              "ingest-2026-07-24-01",
+  "instructions":         "..."
 }
 \end{verbatim}
 The LLM reads the source and returns typed candidate blocks. A document may
 produce semantic and procedural memory without producing episodic memory; the
 classification depends on what the source actually contains.
 
+Two operations are defined. \texttt{extract\_knowledge} asks the model to read a
+registered source and propose typed blocks from it.
+\texttt{rederive} asks it to rebuild derived blocks against a replacement
+canonical source, which is the operation a caller requests when dropping
+evidence that has since been superseded (Section~\ref{sec:drop}).
+
+The \texttt{task\_id} is what the resulting provenance records cite, so that a
+later batch invalidation can name this task as the producer of everything it
+yielded.
+
+\begin{callout}[title=Only three memory types are proposable]
+A processing task MUST NOT allow candidates in the \textbf{canonical} or
+\textbf{provenance} modules, and an implementation MUST reject a task that does.
+Canonical registration is deterministic: it preserves observed bytes and needs
+no interpretation. Provenance is written by the protocol itself. Opening either
+to a proposer would put the external model in charge of the evidence or of the
+audit record, which is precisely the boundary of Section~\ref{sec:protocol}.
+\end{callout}
+
+\paragraph{Wire schemas.}
+Three schema identifiers are normative, and each is carried explicitly in the
+document it governs so that a receiver never has to infer it:
+\texttt{boltzmann.task/v1} for the processing task,
+\texttt{boltzmann.candidates/v1} for the model's response, and
+\texttt{boltzmann.evidence/v1} for the Evidence Bundle
+(Section~\ref{sec:query}).
+
 \subsection{Validation and commit}
 
-Results from the LLM do not enter automatically. The protocol checks schema,
-references, pages, types, duplicates, relations, and basic contradictions.
-Candidates may end up \texttt{VALIDATED}, \texttt{PENDING\_REVIEW},
-\texttt{REJECTED}, or \texttt{CONTRADICTED}. For each accepted block, the
+Results from the LLM do not enter automatically. Validation is the point at
+which a \emph{proposal} becomes a \emph{block}: before it, a candidate is
+untrusted data with no identity; after it, an accepted candidate has a
+\texttt{block\_id} and is eligible for commit. No other operation may mint a
+block.
+
+Every candidate receives exactly one of four verdicts
+(Table~\ref{tab:verdicts}), and only \texttt{VALIDATED} candidates MAY be
+committed. A verdict MUST be accompanied by the issues that produced it, each
+naming the check that fired and, where applicable, the field within the payload,
+so that a rejection is actionable rather than an opaque refusal.
+
+\begin{table}[htb]
+\centering
+\caption{The four validation verdicts.}
+\label{tab:verdicts}
+\begin{tabularx}{\textwidth}{lY}
+\toprule
+\textbf{Verdict} & \textbf{Meaning} \\
+\midrule
+\texttt{VALIDATED}       & Well-formed, referenced, and consistent. Eligible for commit. \\
+\texttt{PENDING\_REVIEW} & Admissible, but not decidable by the protocol alone. Requires a human or a policy decision. \\
+\texttt{REJECTED}        & Malformed, unreferenced, or duplicate. Never committed. \\
+\texttt{CONTRADICTED}    & Well-formed but in conflict with knowledge already held; the conflicting blocks are named. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\paragraph{The checks.}
+A conforming implementation MUST apply at least the following. \emph{Schema}:
+the payload satisfies a registered schema for its declared memory type.
+\emph{Allowed type}: the candidate's memory type was permitted by the task.
+\emph{Evidence}: every cited canonical block exists in the installed snapshot.
+\emph{Evidence consistency}: the citations a candidate states match the source
+the task named, since a payload claiming different evidence is a validation
+failure and not something to reconcile silently. \emph{Content}: bytes a
+candidate names are present and hash as claimed. \emph{Duplicate}: the resulting
+identity is not already in the composition. \emph{Relation}: referenced blocks
+exist and the relation is admissible. \emph{Contradiction}: the candidate does
+not conflict with knowledge already held.
+
+How contradiction is detected is left open, and a check that cannot decide MUST
+yield \texttt{PENDING\_REVIEW} rather than guess in either direction. The
+protocol fixes what the verdicts mean and which of them may be committed, not
+how cleverly an implementation reaches them.
+
+For each accepted block, the
 protocol prescribes the following steps:
 
 \begin{enumerate}[leftmargin=1.6em]
@@ -1198,22 +1791,89 @@ protocol guarantees \emph{verifiability, not identical ranking}: two conforming
 implementations may return the same verifiable set of blocks in a different
 order, because vector search is approximate and ranking is tunable.
 
+\paragraph{The request.}
+A query separates three things: the terms, the conditions that narrow the
+snapshot, and the advice a planner may follow or ignore.
+\begin{verbatim}
+{
+  "text": "how do I compute Fourier coefficients",
+  "filters": {
+    "memory_types":        ["semantic", "procedural"],
+    "subject":             "signals",
+    "since":               "2026-05-01T00:00:00Z",
+    "until":               null,
+    "tags":                ["exam"],
+    "evidence":            ["sha256:PDF123"],
+    "include_superseded":  false
+  },
+  "hints": { "mode": "auto", "limit": 10, "expand_depth": 1 }
+}
+\end{verbatim}
+The \texttt{text} MAY be empty. ``The episodes of last May'' is a complete
+request with no terms in it, and refusing it would make recency and subject
+filters unusable on their own.
+
+Filters are conditions and MUST be honored. Hints are advice: the retrieval
+mode, the result limit, and the expansion depth express what the caller
+believes will work, and an implementation that ignores every hint and still
+returns verified blocks with their provenance is conforming. The named modes are
+\texttt{auto} (infer intent from the query's shape), \texttt{exact} (resolve
+identities only), \texttt{lexical} (match terms as written), \texttt{semantic}
+(match meaning, accepting approximation), and \texttt{associative} (expand
+outward from the strongest hits along declared relations). A mode names a
+strategy, never an engine, which is what keeps Principle~7 intact.
+
+The \texttt{memory\_types} filter is the mechanism behind R2: it is what keeps
+``what happened in the class of May 14'' from competing with ``the definition of
+a Fourier series'' in a single similarity ranking. The
+\texttt{include\_superseded} filter reflects that superseded blocks stay in the
+composition and remain verifiable; what supersession changes is accessibility
+(Section~\ref{sec:forgetting}).
+
 \subsection{Evidence Bundle}
 
-The brain's result is not a written answer. It is a data contract that may
-include matching blocks, content, memory type, relations, sources, retrieval
-score, block IDs, and verification status:
+The brain's result is not a written answer. It is a data contract carrying the
+matching blocks and everything needed to audit them:
 \begin{verbatim}
 {
   "matches": [{
-    "block_id": "sha256:CONCEPT1",
+    "block_id":    "sha256:CONCEPT1",
     "memory_type": "semantic",
-    "content": "<serialized knowledge block content>",
-    "source": {"block_id": "sha256:PDF123", "page": 147},
-    "verified": true
-  }]
+    "content":     { ... the block's payload ... },
+    "score":       "0.87",
+    "sources":     [{"block_id": "sha256:PDF123", "locator": "p.147"}],
+    "verified":     true,
+    "resolvable":   true,
+    "superseded_by": null
+  }],
+  "verified_against": { "semantic": "sha256:SEMANTIC_ROOT_V7" },
+  "truncated": false
 }
 \end{verbatim}
+
+Four fields carry guarantees stated elsewhere in this document, and a
+conforming implementation MUST populate all of them.
+
+\texttt{verified} asserts that both the block's hash and its membership in the
+installed snapshot were checked. \texttt{verified\_against} names the module
+roots that membership was checked against, so the assertion is re-checkable
+independently rather than taken on the responder's word: without it,
+\texttt{verified} would be a claim a consumer has no way to audit, which is the
+opposite of the property Section~\ref{sec:composition} argues does not compose.
+
+\texttt{resolvable} distinguishes a block whose bytes are still present from one
+that was redacted. A consumer MUST be able to tell a removed block from a
+corrupted one (Section~\ref{sec:erasure-verifiability}), and this is where that
+requirement is met at query time.
+
+\texttt{superseded\_by} names a newer block that takes precedence, so a caller
+that asked to include superseded blocks can tell which ones they are.
+
+\texttt{score} is a decimal \emph{string}, for the same reason payloads forbid
+floats (Section~\ref{sec:serialization}): a number whose textual form varies
+across languages does not belong in a wire format meant to be compared. The
+scale is not normative; only the encoding is.
+
 The consumer receives block identities, content, memory type, sources, and
 verification status, and remains free to explain, summarize, compare, or reuse
 the evidence. Those transformations happen outside the brain.
@@ -1447,12 +2107,48 @@ root simply never included the block.
 \subsection{Policy is configuration}
 
 As with query planning (Section~\ref{sec:query}), the protocol fixes the
-operations and the invariants, not the thresholds. Who may drop from which
-module, how deep the provenance cascade runs before requiring review, how many
-roots to retain, and which categories of content are redactable are deployment
-decisions. What the protocol requires is that every drop, supersession, prune,
-and redaction be explicit, recorded in provenance, and reportable, which is the
-content of Principle~8.
+operations and the invariants, not the thresholds. What the protocol requires is
+that every drop, supersession, prune, and redaction be explicit, recorded in
+provenance, and reportable, which is the content of Principle~8. What a
+deployment decides is stated in a \emph{retention policy}
+(Table~\ref{tab:policy}), which an implementation MUST consult before performing
+any removal and MUST refuse to act against.
+
+\begin{table}[htb]
+\centering
+\caption{The retention policy: what a deployment decides, and the defaults this
+version specifies.}
+\label{tab:policy}
+\begin{tabularx}{\textwidth}{lYl}
+\toprule
+\textbf{Setting} & \textbf{Decides} & \textbf{Default} \\
+\midrule
+Droppable modules   & Which modules permit \texttt{drop}. & all non-episodic \\
+Canonical drop      & Whether canonical evidence may be excluded at all. & forbidden \\
+Cascade review      & How many dependents a cascade may drop before the commit requires review. & no threshold \\
+Retained roots      & How many recent snapshots stay reachable, on top of tagged releases. & 10 \\
+Redactable content  & Which media types may have their bytes destroyed. & none \\
+Allowed mechanisms  & Which removal mechanisms are permitted at all. & all the module allows \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Three of these defaults are deliberately restrictive. Canonical drops are
+forbidden by default because excluding evidence forfeits re-derivation from that
+source, which Principle~2 makes a privileged act. Redaction is forbidden by
+default because it is the mechanism for law and safety, not the cleanup path,
+and a deployment that has not decided which content is redactable has not
+decided that it is. The episodic module can never appear among the droppable
+modules: it is append-only by protocol, not by policy, and no configuration may
+make it otherwise.
+
+\begin{callout}[title=One setting that does not exist]
+Whether removals are recorded is not configurable. Every drop, cascade,
+supersession, demotion, prune, and redaction MUST be written to provenance, and
+no policy document, however constructed, may turn that off. Auditability is the
+property that makes exclusion trustworthy, so exposing it as a knob would make
+every other guarantee in this section conditional on a setting.
+\end{callout}
 
 % ===========================================================================
 \section{Knowledge Lifecycle}
@@ -1492,6 +2188,63 @@ cognitive processing: the protocol organizes and governs; the external LLM
 interprets and contextualizes.
 
 % ===========================================================================
+\section{Conformance}
+\label{sec:conformance}
+
+A protocol whose conformance is asserted rather than demonstrated is a
+convention, not a standard. This section states what an implementation must
+demonstrate, and how.
+
+\subsection{Roles}
+
+Conformance is claimed per role, not for the protocol as a whole
+(Table~\ref{tab:operations}). An implementation MAY claim the \textbf{reader}
+role alone, which is the common case for a consumer that installs a published
+brain and queries it. Claiming \textbf{writer}, \textbf{retention}, or
+\textbf{distribution} requires the reader role as well, since each of them is
+defined in terms of reading a snapshot before changing it. An implementation
+that claims all four is \emph{fully conforming}.
+
+Partial claims are not a weakness to be tolerated but the mechanism that makes
+selective installation meaningful: a client that only reads never needs
+validation, contradiction detection, or a packing format, and requiring it to
+implement them in order to be conforming would push implementers toward
+claiming nothing at all.
+
+\subsection{Golden vectors}
+
+Agreement on the identity layer cannot be established by prose, because every
+disagreement in it is silent: two implementations that serialize differently do
+not fail, they simply compute different identifiers for the same knowledge and
+stop sharing blocks. Conformance is therefore anchored in published test
+vectors, covering the four places where a divergence would be invisible:
+
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Serialization}: values and the exact canonical bytes they
+  produce, including the cases that MUST be rejected
+  (Section~\ref{sec:serialization}).
+  \item \textbf{Block identifiers}: envelopes and the \texttt{block\_id} each
+  one hashes to.
+  \item \textbf{Merkle roots}: leaf sets and the root the construction of
+  Section~\ref{sec:merkle} produces, including the empty set and odd-sized
+  trees, where a wrong split is otherwise easy to miss.
+  \item \textbf{Inclusion proofs}: proofs and the roots they must reconstruct.
+\end{itemize}
+
+These vectors MUST be plain data, readable without executing any implementation
+of this protocol. An implementation in another language demonstrates agreement
+by reproducing them, which is a stronger claim than passing a test suite
+supplied by a reference implementation, because it requires no dependency on
+that implementation at all.
+
+Behavioral requirements that cannot be reduced to fixed vectors, such as the
+guarantee that a query returns only verified blocks, or that a drop yields a
+composition excluding the dropped identity, are stated as the MUST clauses of
+the sections that define them. A reference implementation MAY publish an
+executable suite for these; conformance is defined by the clauses, not by the
+suite.
+
+% ===========================================================================
 \section{Conclusion and Future Work}
 \label{sec:conclusion}
 
@@ -1508,19 +2261,59 @@ cascade when that knowledge's source is excluded, rebuild Merkle roots, and
 reclaim unreachable blocks, with redaction reserved for destroying retained
 bytes.
 
-This version deliberately fixes boundaries and responsibilities rather than
-implementations. Concrete block schemas, wire formats, and algorithms remain to
-be validated: the exact block schema per memory type, the deterministic
-serialization used for \texttt{block\_id}, the consolidation and
-contradiction-detection algorithms, the pack sizing and index engine choices,
-and the precise shape of the ingestion and query operations exposed through
-skills, MCP, CLI, or API. Retention leaves its own open questions: the exact
-shape of the drop operation and its provenance cascade, which decay function
-governs demotion in the episodic module, what a sensible default retention
-policy over roots looks like, and how a revocation should propagate through
+Beyond the architecture, this version fixes the interoperability surface: the
+block envelope and its canonical serialization, the Merkle construction and its
+layout identifier, the composition and snapshot documents, the schema-versioning
+rules, the distribution encoding, the ingestion and query contracts, and a
+conformance kit anchored in golden vectors. What is left open divides into
+questions an implementation may answer for itself and questions the protocol
+still owes an answer to. The first kind, consolidation and contradiction
+strategies, ranking and fusion, index engines, and pack sizing, are open by
+design: they vary without breaking exchange. The second kind are gaps, and there
+are two.
+
+\paragraph{Authenticity.}
+Every guarantee in this document is a guarantee of \emph{integrity}. A snapshot
+proves that a set of blocks is intact and internally consistent; it proves
+nothing about who assembled it. Anyone may copy a brain, add a fabricated block,
+recompute the affected roots, and publish a perfectly consistent snapshot under
+someone else's name, and every verification described here would pass. The
+provenance module records an actor for each operation, but that record is a
+declared identifier rather than an authenticated identity, which means the audit
+ledger that Principle~8 relies on is only as trustworthy as whoever could write
+to it. Closing this requires signatures over snapshots, a way for a consumer to
+learn which keys are authorized to sign a given brain that does not depend on
+reaching a server, and rules for rotating and revoking those keys without
+invalidating history. It also raises a question this design cannot inherit from
+its transport: a signature that travels only as a registry
+attestation~\cite{oci_referrers} does not survive a brain leaving OCI, which the
+portability thesis of Section~\ref{sec:composition} would not accept.
+
+\paragraph{Divergence.}
+A snapshot names one parent, so history is a chain rather than a graph and a
+merge is not representable. An implementation can detect that two brains
+advanced from a common ancestor, and Section~\ref{sec:local-state} requires that
+it refuse to overwrite when they have, but refusing is a safe behavior rather
+than a complete one. Reconciliation looks tractable, and in one respect easier
+here than in version control, because a module composition is a set of immutable
+content-addressed blocks and a three-way merge over sets is largely automatic:
+no textual conflict is even representable. The hard cases are semantic rather
+than structural. A block derived from evidence that the other branch dropped
+would satisfy set union while violating R1, and two branches may add blocks that
+contradict each other, which no structural rule detects. Both suggest that a
+merge should be re-validated as if it were an ingestion, so that conflicts
+surface as candidates pending review rather than as an unresolvable state, but
+this document does not specify that.
+
+Three smaller questions remain within retention: which decay function governs
+demotion in the episodic module, how a revocation should propagate through
 registries and caches so that destruction of retained bytes becomes more than a
-local guarantee. Validating these pieces against real, multi-source brains is
-the natural next step.
+local guarantee, and how a consumer detects that it is being served a stale
+snapshot by a registry that simply withholds newer ones. The last is
+independent of signing and is not solved by it.
+
+Validating all of this against real, multi-source brains remains the natural
+next step.
 
 % ===========================================================================
 \bibliographystyle{plainnat}

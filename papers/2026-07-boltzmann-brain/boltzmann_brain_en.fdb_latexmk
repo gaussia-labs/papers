@@ -1,15 +1,16 @@
 # Fdb version 4
-["bibtex boltzmann_brain_en"] 1785931268.58959 "boltzmann_brain_en.aux" "boltzmann_brain_en.bbl" "boltzmann_brain_en" 1785931270.69046 0
-  "./boltzmann_brain_en.bib" 1785171072.87056 8403 4ecd8a9e9670cb30de5befe9b794610e ""
+["bibtex boltzmann_brain_en"] 1786714601.03166 "boltzmann_brain_en.aux" "boltzmann_brain_en.bbl" "boltzmann_brain_en" 1786714603.0924 0
+  "./boltzmann_brain_en.bib" 1786714164.45428 10097 af08368f4bad6396f5fb87eaa1645edf ""
   "/usr/local/texlive/2026/texmf-dist/bibtex/bst/natbib/plainnat.bst" 1233624470 26816 ffe5423d2019860bad9f54bc402fac15 ""
-  "boltzmann_brain_en.aux" 1785931270.35825 19398 6f40c843bff5bd25784d5f3fadf2397c "pdflatex"
+  "boltzmann_brain_en.aux" 1786714602.76801 26890 63278b1190e0eb2d0d5f9949dc494ffa "pdflatex"
   (generated)
   "boltzmann_brain_en.bbl"
   "boltzmann_brain_en.blg"
   (rewritten before read)
-["pdflatex"] 1785931268.70899 "boltzmann_brain_en.tex" "boltzmann_brain_en.pdf" "boltzmann_brain_en" 1785931270.69072 0
+["pdflatex"] 1786714601.1387 "boltzmann_brain_en.tex" "boltzmann_brain_en.pdf" "boltzmann_brain_en" 1786714603.09262 0
   "/usr/local/texlive/2026/texmf-dist/fonts/enc/dvips/base/8r.enc" 1165713224 4850 80dc9bab7f31fb78a000ccfed0e27cab ""
   "/usr/local/texlive/2026/texmf-dist/fonts/enc/dvips/inconsolata/i4-t1-0.enc" 1558214095 7631 5169ff1acd97ff1c4ab83563c99f96f4 ""
+  "/usr/local/texlive/2026/texmf-dist/fonts/enc/dvips/inconsolata/i4-ts1.enc" 1455745497 9446 fe5580ca6042a44427f18d450942e7d0 ""
   "/usr/local/texlive/2026/texmf-dist/fonts/map/fontname/texfonts.map" 1577235249 3524 cb3e574dea2d1052e39280babc910dc8 ""
   "/usr/local/texlive/2026/texmf-dist/fonts/tfm/adobe/palatino/pplb8r.tfm" 1136768653 2532 9ad73cf4dd2173a847f2a5f5608e0b9a ""
   "/usr/local/texlive/2026/texmf-dist/fonts/tfm/adobe/palatino/pplb8t.tfm" 1136768653 3456 16dd534f88eb2bd21ebc7203786b436e ""
@@ -27,6 +28,7 @@
   "/usr/local/texlive/2026/texmf-dist/fonts/tfm/public/cm/cmr10.tfm" 1136768653 1296 45809c5a464d5f32c8f98ba97c1bb47f ""
   "/usr/local/texlive/2026/texmf-dist/fonts/tfm/public/cm/cmsy10.tfm" 1136768653 1124 6c73e740cf17375f03eec0ee63599741 ""
   "/usr/local/texlive/2026/texmf-dist/fonts/tfm/public/inconsolata/t1-zi4r-0.tfm" 1558214095 1328 8f7396ab15954094ca9576957bd516dd ""
+  "/usr/local/texlive/2026/texmf-dist/fonts/tfm/public/inconsolata/ts1-zi4r.tfm" 1455745497 1244 1f88f6a5e4b8ccb8b031aa94d34557d3 ""
   "/usr/local/texlive/2026/texmf-dist/fonts/tfm/public/mathpazo/fplmr.tfm" 1136768653 1032 7fa31d93ecd4cbdfac02c7a1ebc6facc ""
   "/usr/local/texlive/2026/texmf-dist/fonts/tfm/public/mathpazo/fplmri.tfm" 1136768653 1148 56b0fdf7ca3f800294e968f64cfdcb87 ""
   "/usr/local/texlive/2026/texmf-dist/fonts/tfm/public/mathpazo/zplmr7m.tfm" 1136768653 2080 40a71f65088bdd047622ce295520749e ""
@@ -160,6 +162,7 @@
   "/usr/local/texlive/2026/texmf-dist/tex/latex/hyperref/puenc.def" 1769721417 117118 2e3ba580751de5583beacf2e5fee69a9 ""
   "/usr/local/texlive/2026/texmf-dist/tex/latex/inconsolata/inconsolata.sty" 1558214095 4327 344b968526dbd149d23066f8b2160aa4 ""
   "/usr/local/texlive/2026/texmf-dist/tex/latex/inconsolata/t1zi4.fd" 1516054831 1021 03341d1cf7f388bbac1915f944d5d128 ""
+  "/usr/local/texlive/2026/texmf-dist/tex/latex/inconsolata/ts1zi4.fd" 1516054831 862 b7bc66238166414888eb6bc81b3e9624 ""
   "/usr/local/texlive/2026/texmf-dist/tex/latex/kvoptions/kvoptions.sty" 1655478651 22555 6d8e155cfef6d82c3d5c742fea7c992e ""
   "/usr/local/texlive/2026/texmf-dist/tex/latex/kvsetkeys/kvsetkeys.sty" 1665067230 13815 760b0c02f691ea230f5359c4e1de23a7 ""
   "/usr/local/texlive/2026/texmf-dist/tex/latex/l3backend/l3backend-pdftex.def" 1761248321 30662 bfd6e864f4ffc5018b0e2b6260c3181c ""
@@ -170,6 +173,7 @@
   "/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/mt-msa.cfg" 1772226603 5929 2b35ae0f0fb46984dfffa2bc9d09de5c ""
   "/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/mt-msb.cfg" 1772226603 5594 992ef5c3f8fd1168bb7101a957333065 ""
   "/usr/local/texlive/2026/texmf-dist/tex/latex/microtype/mt-ppl.cfg" 1772226603 6374 f178b3503ad84f93c65c2e44f7dd5a67 ""
+  "/usr/local/texlive/2026/texmf-dist/tex/latex/multirow/multirow.sty" 1731446765 6696 886c9f3087d0b973ed2c19aa79cb3023 ""
   "/usr/local/texlive/2026/texmf-dist/tex/latex/natbib/natbib.sty" 1291685959 45456 1c8843383c0bd05870c45fa0ebea6cc2 ""
   "/usr/local/texlive/2026/texmf-dist/tex/latex/pgf/basiclayer/pgf.sty" 1601326656 1090 bae35ef70b3168089ef166db3e66f5b2 ""
   "/usr/local/texlive/2026/texmf-dist/tex/latex/pgf/basiclayer/pgfcore.sty" 1673816307 373 00b204b1d7d095b892ad31a7494b0373 ""
@@ -204,13 +208,13 @@
   "/usr/local/texlive/2026/texmf-var/fonts/map/pdftex/updmap/pdftex.map" 1776441147 5573038 b99aad5e4898a9034e953632f940512b ""
   "/usr/local/texlive/2026/texmf-var/web2c/pdftex/pdflatex.fmt" 1776441023 3636773 e51e899088d21c9a38269bba5ae1ecfd ""
   "/usr/local/texlive/2026/texmf.cnf" 1774209515 577 648cd9f92f9c0eac486f4c71c85cfbbe ""
-  "boltzmann_brain_en.aux" 1785931270.35825 19398 6f40c843bff5bd25784d5f3fadf2397c "pdflatex"
-  "boltzmann_brain_en.bbl" 1785931268.70749 7092 d459cc6f419cc0e8c5c17e16a0594164 "bibtex boltzmann_brain_en"
-  "boltzmann_brain_en.out" 1785931270.35969 7139 7fdf9c3fc61d56be7adb98faa3a48a74 "pdflatex"
-  "boltzmann_brain_en.tex" 1785931149.42738 76981 c24d9e056a1a2d8c8d32ea5de80ccd10 ""
-  "github.pdf" 1784913385.42552 3593 10e89d479465c26f610291715c46a22f ""
-  "hf-logo.pdf" 1784913385.42657 14538 f844f4ce25811f457706ab3ba53c0258 ""
-  "logo.pdf" 1784913385.42453 3159 7826d4dabf05dbb666decbee4bc84c11 ""
+  "boltzmann_brain_en.aux" 1786714602.76801 26890 63278b1190e0eb2d0d5f9949dc494ffa "pdflatex"
+  "boltzmann_brain_en.bbl" 1786714601.13536 8601 4bc7bce502c729f392de9e9a06561eea "bibtex boltzmann_brain_en"
+  "boltzmann_brain_en.out" 1786714602.77002 8473 38bea5ec430bfafdc1e2aafd8497f5d0 "pdflatex"
+  "boltzmann_brain_en.tex" 1786714593.10463 119283 99b566370efcc0ea7dcadd15bac732d7 ""
+  "github.pdf" 1785931433.30461 3593 10e89d479465c26f610291715c46a22f ""
+  "hf-logo.pdf" 1785931433.30494 14538 f844f4ce25811f457706ab3ba53c0258 ""
+  "logo.pdf" 1785931433.30511 3159 7826d4dabf05dbb666decbee4bc84c11 ""
   (generated)
   "boltzmann_brain_en.aux"
   "boltzmann_brain_en.log"
