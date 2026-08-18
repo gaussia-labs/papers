@@ -133,45 +133,30 @@ inside a single provider, agent, or vector store, where it is hard to audit,
 reindex, version, or move. We propose \textbf{Boltzmann Brain}, a portable
 knowledge architecture built on one principle: the brain conserves, validates,
 and retrieves knowledge, while an external and interchangeable LLM processes,
-contextualizes, and uses it. The brain never embeds a model of its own.
-Knowledge is stored as typed, content-addressed blocks organized into five
-memory modules (canonical, episodic, semantic, procedural, and provenance),
-inspired by complementary learning systems and hippocampal indexing rather
-than by literal brain-to-database mappings. Each module bundles its blocks, a
-Merkle DAG that pins the exact composition of a version, and the indices needed
-to query it. We separate three levels of hashes, one for block identity, one
-for the Merkle root of a snapshot, and one for the OCI digest of a distributed
-blob, and show how packaging each module as a separate OCI Artifact yields
-selective installation and incremental updates. Interaction happens through the
-\emph{Boltzmann Protocol}: during ingestion and query the LLM proposes candidate
-blocks and consumes Evidence Bundles, while the protocol governs what is
-committed and returns only verified evidence, never prose. Because the brain is
-portable data addressed by a protocol rather than a deployable service, the same
-snapshot can be read and extended by any conforming client. Canonical blocks are
-the root of evidence: they record what was observed, not what is true, and every
-derived interpretation cites them through provenance. Because wrong knowledge
-must be removable without punching holes in the current snapshot, we specify how
-non-episodic modules drop blocks, rebuild their Merkle DAGs, and cascade through
-provenance, with a privileged cascade when the dropped block is canonical, and
-with redaction reserved for destroying retained bytes. Beyond the architecture,
-this version fixes the wire formats an independent implementation needs in order
-to interoperate: the block envelope and its canonical serialization, the Merkle
-construction and its layout identifier, the composition and snapshot documents,
-the OCI media types and annotations, the ingestion and query contracts, and a
-conformance kit of golden vectors. It then separates integrity from
-\emph{authenticity}, which no amount of hashing can supply: one detached
-signature over a snapshot covers every module root and the entire prior history,
-the keys authorized to produce one travel inside the brain as a trust root whose
-revisions require a quorum of previously authorized keys, and a signature's
-validity is decided by position in the hash-linked chain rather than by a
-timestamp a signer could forge. Divergence becomes reconciliation rather than a
-refusal: snapshots name several parents, compositions are merged as sets of
-immutable blocks, and the result is re-validated as an ingestion, so a conflict
-surfaces as a validation verdict and a contribution from outside requires no
-object the protocol did not already have. We close with the adversarial model
-this architecture implies, including what it does not close: first contact, a
-registry that withholds newer snapshots, and untrusted evidence replayed into a
-model by design.
+contextualizes, and uses it. The brain embeds no model of its own. Knowledge is
+stored as typed, content-addressed blocks organized into five memory modules:
+canonical, episodic, semantic, procedural, and provenance. Each module bundles
+its blocks, a Merkle DAG that pins the exact composition of a version, and its
+indices. We separate three levels of hashes, for block identity, module
+composition, and transportable file, and package each module as a separate OCI
+Artifact, which yields selective installation and incremental updates.
+Interaction happens through the \emph{Boltzmann Protocol}: the LLM proposes
+candidate blocks and consumes Evidence Bundles, while the protocol governs what
+is committed and returns evidence, never prose. Canonical blocks are the root of
+evidence, recording what was observed, and every derived interpretation cites
+them through provenance. Wrong knowledge must be removable without punching
+holes in the current snapshot, so non-episodic modules drop blocks, rebuild their
+Merkle DAGs, and cascade through provenance, with redaction reserved for
+destroying retained bytes. This version fixes the interoperability surface, from
+the block envelope to a conformance kit of golden vectors, and separates
+integrity from \emph{authenticity}, which hashing alone cannot supply. One
+detached signature over a snapshot covers every module root and the entire prior
+history, the authorized keys travel inside the brain, and validity is decided by
+position in the hash-linked chain, never by a forgeable timestamp. Divergence
+becomes reconciliation: snapshots name several parents, compositions merge as
+sets of immutable blocks, and the result is re-validated as an ingestion. We
+close with the adversarial model this design implies, including what it leaves
+open.
 \end{abstract}
 
 \keywords{knowledge representation, retrieval-augmented generation, content
@@ -195,7 +180,7 @@ This paper argues that knowledge should be a \emph{first-class, portable
 artifact} that outlives any particular model or vendor. We present
 \textbf{Boltzmann Brain}, an architecture whose sole responsibility is to
 conserve information, organize it into memories with distinct purposes,
-maintain verifiable versions, and retrieve relevant evidence. Crucially, the
+maintain verifiable versions, and retrieve relevant evidence. The
 brain contains no language model of its own. It integrates with whatever LLM
 the user chooses, which interprets sources during ingestion and contextualizes
 results during query. The design is captured by a single guiding idea:
@@ -328,8 +313,7 @@ LLM-era knowledge is currently stored and consumed:
   agent, or vector database.
   \item Maintaining a source of evidence that allows knowledge to be
   reindexed and reinterpreted as models and methods evolve.
-  \item Distinguishing concrete experiences, general facts, and procedures,
-  rather than collapsing everything into undifferentiated chunks.
+  \item Distinguishing concrete experiences, general facts, and procedures.
   \item Updating knowledge without losing history, provenance, or
   reproducibility.
   \item Removing knowledge that is obsolete, costly, or legally untenable,
@@ -467,12 +451,12 @@ Skill / MCP / CLI / API   & Contract for an external LLM to query and ingest. \\
 \section{Related Work and the Case for a New Protocol}
 \label{sec:related}
 
-\subsection{The landscape}
+\subsection{What already exists}
 
 The industry is already solving pieces of this problem, but no single artifact
 yet integrates a canonical source, typed memories, fine-grained versioning,
 portable indices, modular distribution, and a model-agnostic access protocol.
-Table~\ref{tab:related} positions the most relevant efforts; we then discuss
+Table~\ref{tab:related} positions the most relevant efforts. We then discuss
 them in turn.
 
 \begin{table}[htbp]
@@ -730,8 +714,7 @@ ledger of removals: every drop, cascade, and redaction is recorded there so
 that exclusion stays auditable (Section~\ref{sec:forgetting}). The actor named
 in a provenance record is a \emph{declared} identifier; what turns it into an
 authenticated identity is the signature over the snapshot that committed the
-record (Section~\ref{sec:authenticity}), which is why authenticity belongs in
-this specification rather than in a deployment's configuration.
+record (Section~\ref{sec:authenticity}), which is why authenticity belongs in this specification.
 
 Provenance is not free-form annotation. It carries six kinds of record
 (Table~\ref{tab:provenance}), and the set is closed because every other part of
@@ -760,8 +743,7 @@ Two distinctions inside these records carry weight elsewhere. An \emph{actor} is
 who performed an operation, while a \emph{producer} is what generated a derived
 block, recorded at the granularity a batch invalidation needs: a model, a
 pipeline, an ingestion batch, or an actor. That granularity is what makes
-Section~\ref{sec:drop}'s batch invalidation expressible as a query over
-provenance rather than as a second mechanism. And because registration records
+Section~\ref{sec:drop}'s batch invalidation expressible as a query over provenance. And because registration records
 live here rather than inside canonical blocks, re-registering an identical
 source deduplicates while still recording that a second actor incorporated it.
 
@@ -960,12 +942,12 @@ descent through stored nodes.
 \paragraph{Why a DAG rather than a tree.}
 Because blocks are shared across versions. When a new version reuses unchanged
 blocks, those blocks are shared by hash instead of duplicated, so a node may be
-referenced by more than one root; the structure is therefore a directed acyclic
+referenced by more than one root. The structure is therefore a directed acyclic
 graph, as in Git's object store. This structural sharing is what makes
 incremental updates cheap (Section~\ref{sec:distribution}): a new version adds
 only the changed blocks and a new root, and reuses everything else by
 reference. What sharing guarantees is precisely this reuse of blocks, which are
-the bytes a consumer would otherwise have to transfer; how much of the DAG's
+the bytes a consumer would otherwise have to transfer. How much of the DAG's
 internal structure above the leaves is also reused depends on the layout a
 conforming implementation chooses, and internal nodes carry no content of their
 own, being hashes of hashes.
@@ -1189,8 +1171,7 @@ Three requirements stated elsewhere in this document compose badly if this is
 left implicit. A travelling index cannot be rebuilt by a model-agnostic client,
 which is the only reason it travels. A drop rebuilds the module's indices from
 the new composition (Section~\ref{sec:drop}). And no operation in this protocol
-removes a single entry from an index, because indices are built and queried
-rather than edited. Put together, an implementation that does the obvious thing
+removes a single entry from an index, because indices are built and queried, never edited. Put together, an implementation that does the obvious thing
 publishes, after a drop, an index that still contains the representation of the
 dropped block.
 
@@ -1200,8 +1181,7 @@ this worse rather than better: it is not a retrieval bug, so nothing surfaces to
 be noticed, and the published artifact silently carries a learned representation
 of content that was deliberately excluded. For a drop motivated by law or safety
 that leaks precisely what the drop was meant to remove, and text embeddings
-recover enough of their input for the concern to be practical rather than
-theoretical~\cite{morris2023embeddings}. This is the \emph{ordinary} path, not
+recover enough of their input for the concern to be a practical one~\cite{morris2023embeddings}. This is the \emph{ordinary} path, not
 the exceptional one: Section~\ref{sec:forgetting} presents drop as the normal
 removal mechanism and redaction as the rare exception, and it is the common case
 that leaks.
@@ -1314,8 +1294,7 @@ protocol-level refusal could not express.
 \label{sec:distribution}
 
 OCI is a standard for content-addressed manifests, descriptors, and blobs. A
-compatible registry stores the blobs and allows referencing them by tag or
-digest; the specification organizes its components as an external Merkle DAG of
+compatible registry stores the blobs and allows referencing them by tag or digest. The specification organizes its components as an external Merkle DAG of
 descriptors~\cite{oci_image_manifest, oci_descriptor, oras_artifacts}.
 Figure~\ref{fig:oci} shows how OCI distributes modules while the internal
 Merkle versions the blocks within each module.
@@ -1370,8 +1349,7 @@ separate artifacts referring to the manifest, for reasons
 Section~\ref{sec:publish-signed} gives.
 
 \paragraph{Media types.}
-Two clients that disagree on media types cannot pull each other's brains, so
-these are normative rather than left to an implementation
+Two clients that disagree on media types cannot pull each other's brains, so these are normative here
 (Table~\ref{tab:mediatypes}).
 
 \begin{table}[htbp]
@@ -1394,14 +1372,14 @@ Signature record & \texttt{application/vnd.gaussia.boltzmann.signature.v1+json} 
 A module layer is a tar archive holding the module's composition document and
 its block bytes. Both the tar and the compression stream MUST be written
 deterministically, so that two clients packing the same module produce
-byte-identical layers; without that, registry deduplication silently stops
+byte-identical layers. Without that, registry deduplication silently stops
 working and every publish transfers blobs the registry already holds. Gzip is
 specified rather than a denser codec because it is universally available: a
 client that needed an extra dependency to read a published brain would be
 trading portability for a few percent.
 
 \paragraph{Annotations.}
-The manifest carries what a consumer needs in order to decide \emph{before}
+The manifest carries what a consumer needs to decide \emph{before}
 downloading (Table~\ref{tab:annotations}).
 
 \begin{table}[htbp]
@@ -1498,8 +1476,7 @@ can be interrupted without corrupting a brain.
 Alongside the current snapshot, a brain keeps a set of retained snapshots:
 tagged releases plus a bounded number of recent ones. This set is what
 reachability is computed from when pruning reclaims blocks
-(Section~\ref{sec:forgetting}), and it is what gives ``a retained root'' a
-precise meaning rather than an intuitive one.
+(Section~\ref{sec:forgetting}), and it is what gives ``a retained root'' a precise meaning.
 
 \paragraph{Origin.}
 A brain pulled from a registry MUST record where it came from: the repository
@@ -1597,7 +1574,7 @@ that module's entire block set. Each block commits to its own bytes. The parent
 digests commit to the whole prior history, since changing any ancestor would
 change its digest and break the chain leading to the signed value. A conforming
 implementation MUST therefore attach signatures to snapshots, and MUST NOT
-require a signature over any other object in order to establish authorship.
+require a signature over any other object to establish authorship.
 Signing the head is sufficient; signing every historical snapshot is OPTIONAL.
 
 A useful side effect: because the snapshot names each module's Merkle layout and
@@ -1778,8 +1755,7 @@ is complete, and the trust root would not be complete until it named the digest.
 A revision number breaks the cycle and gives up nothing, because a revision
 corresponds to exactly one snapshot in the chain and the position is recoverable
 by walking parents. A \texttt{compromised\_from}, by contrast, always names a
-position that is already published, so its digest is known and no cycle arises;
-and the finer granularity is necessary rather than incidental, since a revision
+position that is already published, so its digest is known and no cycle arises. The finer granularity is necessary rather than incidental, since a revision
 may be in force across many snapshots and a key compromised in the middle of
 that span cannot be described by a revision boundary.
 
@@ -1995,8 +1971,7 @@ that withdraws a signature already accepted.}
 Every rule stated so far is expressed against a snapshot's first parent, and one
 snapshot in every brain has none. The \texttt{init} operation
 (Table~\ref{tab:operations}) produces it, and because it is the origin of every
-authority the brain will ever have, its rules are stated rather than left to be
-inferred.
+authority the brain will ever have, its rules are stated here.
 
 A \emph{genesis snapshot} is a snapshot whose \texttt{parents} list is empty.
 A brain MUST have exactly one, and every other snapshot MUST be reachable from
@@ -2686,7 +2661,7 @@ Every candidate receives exactly one of four verdicts
 (Table~\ref{tab:verdicts}), and only \texttt{VALIDATED} candidates MAY be
 committed. A verdict MUST be accompanied by the issues that produced it, each
 naming the check that fired and, where applicable, the field within the payload,
-so that a rejection is actionable rather than an opaque refusal.
+so that a rejection is actionable.
 
 \begin{table}[htbp]
 \centering
@@ -2984,8 +2959,7 @@ than the ordinary cleanup path.
 The primary removal operation is \emph{drop}. It applies to the
 \textbf{canonical}, \textbf{semantic}, \textbf{procedural}, and
 \textbf{provenance} modules. The \textbf{episodic} module is exempt: episodes
-are a chronological record of what happened, so corrections append new episodes
-or supersession relations rather than rewriting the past
+are a chronological record of what happened, so corrections append new episodes or supersession relations
 (Section~\ref{sec:modules}).
 
 A drop does not mutate blocks in place. Blocks remain content-addressed and
@@ -3096,8 +3070,7 @@ wrongly ingested source or for wrong semantic knowledge: those are dropped.
 \paragraph{Append-only is not an exemption from erasure.}
 The episodic module is exempt from drop, and the law-and-safety pressure named
 earlier in this section can require personal data to disappear. Those two facts
-meet in an uncomfortable place, and this document states it rather than leaving
-it to be discovered: for personal data inside an episode, redaction is the
+meet in an uncomfortable place, and this document says so plainly: for personal data inside an episode, redaction is the
 \emph{only} available path, so the mechanism framed here as rare and exceptional
 is the ordinary one for the module most likely to contain personal data. Three
 consequences are normative. A retention policy MUST be able to declare episodic
@@ -3401,8 +3374,7 @@ resulting history.}
 Replaying immutable blocks onto a new base is deterministic, but it changes
 snapshot identities, which invalidates signatures over them and any root already
 published. That is exactly the property of the lineage rewrite of
-Section~\ref{sec:forgetting}, and unifying them is a simplification rather than a
-coincidence: both are legitimate only before publication, under version
+Section~\ref{sec:forgetting}, and unifying them is a simplification: both are legitimate only before publication, under version
 control's own rule about rewriting public history.
 
 \paragraph{Squash collapses snapshots, not provenance.}
@@ -3782,8 +3754,7 @@ where a signed statement asserts a validity window and its absence is itself a
 signal, as in The Update Framework's timestamp role~\cite{samuel2010tuf}, and an
 append-only transparency log, where a consumer can check that the snapshot it was
 served is the latest one the log has witnessed~\cite{rfc9162}. Both require a
-party outside the artifact, which is why neither is specified here rather than
-adopted casually: the offline property of
+party outside the artifact, which is why neither is specified here: the offline property of
 Section~\ref{sec:integrity-total} is the one thing this design is unwilling to
 trade, and both answers weaken it for consumers that cannot reach the extra
 party. Section~\ref{sec:conclusion} states this as open.
@@ -3819,7 +3790,7 @@ The properties in this document hold for a consumer that does the following, and
 an implementation SHOULD make each of them the default rather than an option:
 
 \begin{itemize}[leftmargin=1.4em]
-  \item Recompute integrity rather than accept a publisher's assertion of it
+  \item Recompute integrity; never accept a publisher's assertion of it
   (Section~\ref{sec:verification}).
   \item Pin a trust root on first contact, and refuse a change that does not
   satisfy the quorum rule (Section~\ref{sec:bootstrap}).
@@ -3854,7 +3825,7 @@ Authenticity is claimable separately for a reason that is easy to mistake for a
 weakness. A consumer that recomputes integrity while holding no trust anchor is
 not a degraded client: it is the zero-configuration case
 Section~\ref{sec:integrity-total} guarantees, and requiring signature
-verification in order to be a conforming reader would make offline integrity
+verification for a reader to be conforming would make offline integrity
 conditional on configuration the protocol promises it does not need. What no
 implementation may do is claim an authenticity it did not check
 (Section~\ref{sec:verification}).
@@ -3862,7 +3833,7 @@ implementation may do is claim an authenticity it did not check
 Partial claims are not a weakness to be tolerated but the mechanism that makes
 selective installation meaningful: a client that only reads never needs
 validation, contradiction detection, or a packing format, and requiring it to
-implement them in order to be conforming would push implementers toward
+implement them to be conforming would push implementers toward
 claiming nothing at all.
 
 \subsection{Golden vectors}
@@ -3948,8 +3919,7 @@ verification stays offline, their scopes are the protocol's own operations rathe
 than invented roles, revising the list requires a quorum of keys authorized in
 the previous revision, and validity is decided by position in the hash-linked
 chain rather than by a timestamp a signer could forge. The one thing that cannot
-come from inside is trust at first contact, and that limitation is stated rather
-than engineered around.
+come from inside is trust at first contact, and that limitation is stated plainly.
 
 \paragraph{Divergence was a question of what to record, not of what to compute.}
 Section~\ref{sec:divergence} makes \texttt{parents} a list, which is the whole
@@ -3958,7 +3928,7 @@ content-addressed blocks, no textual conflict is representable and the structura
 reconciliation is set arithmetic; because a snapshot is a complete statement of
 composition rather than a patch, merge, rebase, and squash all produce the same
 blocks and differ only in the lineage they record, which once snapshots are
-signed makes the choice a question of attribution rather than of tidiness. The
+signed turns the choice into a question of attribution. The
 conflicts that remain are semantic, and they are resolved by re-validating the
 reconciled result as if it were an ingestion, so a conflict surfaces as a
 validation verdict instead of an unresolvable state. A contribution from outside
