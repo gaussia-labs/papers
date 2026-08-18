@@ -1141,7 +1141,8 @@ B\textsuperscript{+} tree  & Episodes between two dates; concept by ID.     & Or
 Inverted                   & Blocks containing ``Fourier''.                 & Lexical matching. \\
 Vector                     & ``Decompose a periodic function into sines''.  & Semantic similarity. \\
 Graph                      & Related concepts, evidence, dependencies.      & Associative traversal. \\
-Bitmap / facets            & \texttt{semantic AND subject=signals AND current}. & Efficient filter intersection. \\
+Bitmap / facets & \texttt{semantic AND class=signals AND current}. & Efficient filter intersection. \\
+Catalog                    & Everything filed under ``Parciales''.          & Navigating evidence by axis. \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -1211,6 +1212,160 @@ brain thus owns durable symbolic knowledge and borrows the operational vector
 space from whichever model queries it. This also clarifies a naming
 coincidence: the \emph{semantic} module denotes general, consolidated knowledge
 (as opposed to episodic memory), not an embedding-based representation.
+
+\subsection{The catalog: making canonical evidence navigable}
+\label{sec:catalog}
+
+A canonical module that holds five hundred sources is, to a consumer, five
+hundred hashes. The protocol says what each one is and proves that it is intact,
+and it says nothing at all about where any of it belongs. A brain published that
+way is a pile, and the party best placed to organize it, the one who assembled
+it, has no way to record the organization so that it travels with the artifact.
+
+Section~\ref{sec:query} already assumes otherwise. Its request carries a
+\texttt{subject} filter, which until now was free text matched against nothing
+this document defines. This subsection supplies what that filter needs.
+
+\paragraph{Where classification cannot live.}
+Two placements are ruled out before any design begins, and both follow from
+constraints stated earlier.
+
+It cannot live inside the canonical block. A canonical block carries only what
+its bytes determine, so that re-registering an identical original is a no-op
+(Section~\ref{sec:modules}). A classification written into the payload would
+enter \texttt{block\_id}, two parties filing the same PDF under different
+headings would compute different identities, and the evidence would fork every
+time someone changed their mind about where it goes.
+
+It cannot live in provenance either, and the reason is practical. A processing
+task MUST NOT allow candidates in the canonical or provenance modules
+(Section~\ref{sec:ingestion}), so a classification held there could never be
+proposed by a model. Filing a corpus of any size by hand is not a workable
+requirement.
+
+\paragraph{Classification is consolidated knowledge.}
+What remains is the correct answer and not merely the surviving one. ``This
+source is about Fourier analysis'' is a claim derived from reading the source,
+which is precisely what the semantic module holds and precisely what the
+ingestion path produces. Placing it there means a model may propose it, the
+validation of Section~\ref{sec:validation} judges it, a drop removes it, and
+\texttt{rederive} rebuilds it. No new machinery is introduced.
+
+\paragraph{Three kinds of block.}
+A \emph{scheme} declares an axis of classification and whether that axis is
+exclusive. A \emph{class} is a node on one axis, carrying a label and the scheme
+it belongs to. A \emph{placement} files one canonical block under one class, and
+cites that canonical block as its evidence, which is what makes the canonical
+cascade of Section~\ref{sec:drop} apply to it without a special rule: dropping a
+source removes its filings in the same commit, and nothing has to remember to
+clean up.
+
+\begin{verbatim}
+scheme     { "kind": "scheme", "scheme": "subject", "exclusive": false }
+class      { "kind": "class",  "scheme": "subject", "label": "Fourier analysis" }
+placement  { "kind": "relation", "evidence": ["sha256:PARCIAL_2024"],
+             "relations": [{ "predicate": "classified_as",
+                             "target": "sha256:CLASS_FOURIER" }] }
+\end{verbatim}
+
+\paragraph{Hierarchy is a block, not a field.}
+A class does not name its parent. The narrowing relation between two classes is
+its own block, naming both endpoints, and the asymmetry with a placement is
+deliberate: a placement takes its source from \texttt{evidence} and needs one
+edge, while a narrowing has two class endpoints and no evidence at all.
+
+Recording the parent as a field on the class would put it inside that class's
+\texttt{block\_id}. Moving a node in the taxonomy would then change the node's
+identity, every placement pointing at the old identity would dangle, and
+reorganizing one heading would invalidate everything filed beneath it.
+Reorganization is routine, so it must be cheap. This is the same reason
+supersession is a provenance edge and not a field on either block
+(Section~\ref{sec:ingestion}).
+
+\paragraph{One axis is never enough.}
+A source on the Fourier transform is mathematics and is signal processing, and a
+past exam is also a past exam and also from 2024. Forcing a single tree means
+choosing which of those questions a consumer is allowed to ask. Library
+classification reached this conclusion long before content addressing existed,
+and answered it with facets: a document takes coordinates on several independent
+axes instead of one shelf position~\cite{ranganathan1967prolegomena}. A brain
+therefore MAY declare several schemes, and a canonical block MAY hold placements
+on each of them. The \texttt{broader} and \texttt{narrower} vocabulary here is
+the one SKOS uses for the same purpose~\cite{skos2009}.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[x=1cm, y=1cm]
+  % canonical row
+  \node[smallbox, fill=gaussiasoft, draw=gaussiaccent] (p24) at (0,0)
+    {\scriptsize\texttt{parcial\_2024}};
+  \node[smallbox, fill=gaussiasoft, draw=gaussiaccent] (p25) at (3.7,0)
+    {\scriptsize\texttt{parcial\_2025}};
+  \node[smallbox, fill=gaussiasoft, draw=gaussiaccent] (ap)  at (7.1,0)
+    {\scriptsize\texttt{apunte}};
+  \node[lbl] at (-2.0,0) {canonical};
+
+  % axis 1: kind of material
+  \node[bluebox] (mat) at (1.85,2.0) {\scriptsize Parciales};
+  \node[bluebox] (apu) at (7.1,2.0)  {\scriptsize Apuntes};
+  \node[smallbox, draw=gaussiablue] (axm) at (4.4,3.5) {\scriptsize axis: material};
+  \draw[flow]  (axm) -- (mat);
+  \draw[flow]  (axm) -- (apu);
+  \draw[flowa] (mat) -- (p24);
+  \draw[flowa] (mat) -- (p25);
+  \draw[flowa] (apu) -- (ap);
+
+  % axis 2: year
+  \node[bluebox] (y24) at (0,-2.0)   {\scriptsize 2024};
+  \node[bluebox] (y25) at (5.4,-2.0) {\scriptsize 2025};
+  \node[smallbox, draw=gaussiablue] (axy) at (2.7,-3.5) {\scriptsize axis: year};
+  \draw[flow]  (axy) -- (y24);
+  \draw[flow]  (axy) -- (y25);
+  \draw[flowa] (y24) -- (p24);
+  \draw[flowa] (y25) -- (p25);
+  \draw[flowa] (y25) -- (ap);
+\end{tikzpicture}
+\caption{Two axes over the same three sources, grouping them differently:
+by material the sources split \{\texttt{parcial\_2024}, \texttt{parcial\_2025}\}
+against \{\texttt{apunte}\}, and by year they split \{\texttt{parcial\_2024}\}
+against \{\texttt{parcial\_2025}, \texttt{apunte}\}. Every accent edge is one
+placement block. No canonical block is copied and none of them changes, so
+adding, removing, or restructuring an axis touches only the semantic module and
+the canonical root a consumer already holds stays exactly as it was.}
+\label{fig:catalog}
+\end{figure}
+
+\paragraph{The catalog index.}
+The classification blocks are the source of truth, in the sense Principle~1
+requires, and the \emph{catalog} is the derived index over them: what is filed
+under a class, which classes a source holds, and what the axes look like.
+
+Unlike the vector index of Section~\ref{sec:indices-derived}, a catalog is a
+deterministic function of blocks a client already has, so any client rebuilds it
+and no model is required. It MAY nonetheless travel with the canonical module,
+bound to the composition it was built over under the staleness rule of
+Section~\ref{sec:indices-derived}, so that a consumer installing only canonical
+receives a navigable brain instead of a pile.
+
+\paragraph{Normative rules.}
+A canonical block MUST NOT carry classification. Reclassification MUST NOT
+change any canonical composition, so a consumer that already holds the evidence
+transfers nothing when a publisher reorganizes it. A class MUST NOT name its
+parent as a payload field. A placement MUST cite the canonical block it files as
+evidence. Where a scheme declares itself exclusive, a second placement for the
+same block on that axis MUST yield \texttt{CONTRADICTED} rather than silently
+coexist. And this document defines no scheme of its own: which axes exist, and
+what is on them, is a decision each brain records, in the same way it records a
+retention policy.
+
+\begin{callout}[title={What this buys, and what it costs}]
+The evidence is untouched, so reorganizing the whole library moves no bytes and
+invalidates no root. One source appears on as many axes as it deserves with no
+copy of it anywhere. A drop removes its filings through the cascade that already
+exists. Against that: classifying a large corpus for the first time is one model
+pass per source, and a consumer that installs no semantic module and receives no
+travelling catalog still sees the pile.
+\end{callout}
 
 \subsection{Three levels of hashes}
 \label{sec:hashes}
@@ -2400,7 +2555,7 @@ installed snapshot; none of them requires a running service.}
 \toprule
 \textbf{Role} & \textbf{Operation} & \textbf{What it does} \\
 \midrule
-\multirow{8}{*}{Reader}
+\multirow{9}{*}{Reader}
   & \texttt{snapshot}      & Report the current snapshot and its installed modules. \\
   & \texttt{root\_of}      & Report the Merkle root of one installed module. \\
   & \texttt{open\_index}   & Open an index of a named kind over a module. \\
@@ -2408,6 +2563,7 @@ installed snapshot; none of them requires a running service.}
   & \texttt{prove}         & Produce an inclusion proof of a block in a module. \\
   & \texttt{resolvability} & Report which blocks are resolvable and which are tombstoned. \\
   & \texttt{verify}        & Recompute the whole hash structure of an installed snapshot (Section~\ref{sec:verification}). \\
+  & \texttt{browse}        & Walk an axis of the catalog and list what is filed under a class (Section~\ref{sec:catalog}). \\
   & \texttt{search}        & Answer a query with an Evidence Bundle (Section~\ref{sec:query}). \\
 \midrule
 \multirow{5}{*}{Authenticity}
@@ -2417,12 +2573,13 @@ installed snapshot; none of them requires a running service.}
   & \texttt{rotate}        & Commit a trust-root revision, under the quorum rule. \\
   & \texttt{revoke}        & Record that a key is retired, or compromised from a chain position. \\
 \midrule
-\multirow{9}{*}{Writer}
+\multirow{10}{*}{Writer}
   & \texttt{init}          & Create a brain: a genesis snapshot with no parents and its first trust root (Section~\ref{sec:genesis}). \\
   & \texttt{register}      & Preserve a source as canonical evidence, with provenance. \\
   & \texttt{replace}       & Register a new edition and record supersession. \\
   & \texttt{define\_task}  & Emit a processing task for an external model. \\
   & \texttt{validate}      & Judge candidate blocks against the protocol's checks. \\
+  & \texttt{classify}      & File canonical blocks under classes on a declared axis (Section~\ref{sec:catalog}). \\
   & \texttt{commit}        & Incorporate validated candidates and advance the snapshot. \\
   & \texttt{merge}         & Reconcile two histories into a snapshot naming both as parents. \\
   & \texttt{rebase}        & Replay a history onto another, minting new snapshot identities. \\
@@ -2759,8 +2916,7 @@ data rather than prose.}
 \subsection{Query planning and guarantees}
 
 Step three above hides a query planner. By Principle~7 a query is declarative:
-the caller expresses intent (a query, optional filters over memory type,
-subject, or recency, and optional hints such as a retrieval mode or a result
+the caller expresses intent (a query, optional filters over memory type, class, or recency, and optional hints such as a retrieval mode or a result
 limit) and never names a physical index. Choosing which indices to use, and how
 to combine them, is the responsibility of a conforming implementation, in the
 same way that the SQL standard defines a query language and its semantics while
@@ -2793,7 +2949,7 @@ snapshot, and the advice a planner may follow or ignore.
   "text": "how do I compute Fourier coefficients",
   "filters": {
     "memory_types":        ["semantic", "procedural"],
-    "subject":             "signals",
+    "classes":             ["sha256:CLASS_FOURIER"],
     "since":               "2026-05-01T00:00:00Z",
     "until":               null,
     "tags":                ["exam"],
@@ -2804,8 +2960,7 @@ snapshot, and the advice a planner may follow or ignore.
 }
 \end{verbatim}
 The \texttt{text} MAY be empty. ``The episodes of last May'' is a complete
-request with no terms in it, and refusing it would make recency and subject
-filters unusable on their own.
+request with no terms in it, and refusing it would make recency and class filters unusable on their own.
 
 Filters are conditions and MUST be honored. Hints are advice: the retrieval
 mode, the result limit, and the expansion depth express what the caller
@@ -2817,7 +2972,9 @@ identities only), \texttt{lexical} (match terms as written), \texttt{semantic}
 outward from the strongest hits along declared relations). A mode names a
 strategy, never an engine, which is what keeps Principle~7 intact.
 
-The \texttt{memory\_types} filter is the mechanism behind R2: it is what keeps
+The \texttt{classes} filter names class blocks (Section~\ref{sec:catalog}), which is what makes
+``the past exams on Fourier'' a condition the protocol can honour instead of free text a
+responder may read as it likes. The \texttt{memory\_types} filter is the mechanism behind R2: it is what keeps
 ``what happened in the class of May 14'' from competing with ``the definition of
 a Fourier series'' in a single similarity ranking. The
 \texttt{include\_superseded} filter reflects that superseded blocks stay in the

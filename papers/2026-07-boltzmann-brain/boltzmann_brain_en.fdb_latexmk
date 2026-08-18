@@ -1,13 +1,13 @@
 # Fdb version 4
-["bibtex boltzmann_brain_en"] 1787078193.18676 "boltzmann_brain_en.aux" "boltzmann_brain_en.bbl" "boltzmann_brain_en" 1787078245.77539 0
-  "./boltzmann_brain_en.bib" 1787060615.54928 14667 54370b697c79ce94f8b76020c4c7721b ""
+["bibtex boltzmann_brain_en"] 1787081820.94902 "boltzmann_brain_en.aux" "boltzmann_brain_en.bbl" "boltzmann_brain_en" 1787081823.48505 0
+  "./boltzmann_brain_en.bib" 1787081689.73474 15428 701dd6c31b35591f7ef76b6d07608d9b ""
   "/usr/local/texlive/2026/texmf-dist/bibtex/bst/natbib/plainnat.bst" 1233624470 26816 ffe5423d2019860bad9f54bc402fac15 ""
-  "boltzmann_brain_en.aux" 1787078245.46339 45469 5a72113abf91e190838d61ff7353b1ba "pdflatex"
+  "boltzmann_brain_en.aux" 1787081823.1797 47939 e6770f645318b1a38202a2b668ad1fff "pdflatex"
   (generated)
   "boltzmann_brain_en.bbl"
   "boltzmann_brain_en.blg"
   (rewritten before read)
-["pdflatex"] 1787078243.40895 "boltzmann_brain_en.tex" "boltzmann_brain_en.pdf" "boltzmann_brain_en" 1787078245.77564 0
+["pdflatex"] 1787081821.05121 "boltzmann_brain_en.tex" "boltzmann_brain_en.pdf" "boltzmann_brain_en" 1787081823.48526 0
   "/usr/local/texlive/2026/texmf-dist/fonts/enc/dvips/base/8r.enc" 1165713224 4850 80dc9bab7f31fb78a000ccfed0e27cab ""
   "/usr/local/texlive/2026/texmf-dist/fonts/enc/dvips/cm-super/cm-super-t1.enc" 1136849721 2971 def0b6c1f0b107b3b936def894055589 ""
   "/usr/local/texlive/2026/texmf-dist/fonts/enc/dvips/inconsolata/i4-t1-0.enc" 1558214095 7631 5169ff1acd97ff1c4ab83563c99f96f4 ""
@@ -219,10 +219,10 @@
   "/usr/local/texlive/2026/texmf-var/fonts/map/pdftex/updmap/pdftex.map" 1776441147 5573038 b99aad5e4898a9034e953632f940512b ""
   "/usr/local/texlive/2026/texmf-var/web2c/pdftex/pdflatex.fmt" 1776441023 3636773 e51e899088d21c9a38269bba5ae1ecfd ""
   "/usr/local/texlive/2026/texmf.cnf" 1774209515 577 648cd9f92f9c0eac486f4c71c85cfbbe ""
-  "boltzmann_brain_en.aux" 1787078245.46339 45469 5a72113abf91e190838d61ff7353b1ba "pdflatex"
-  "boltzmann_brain_en.bbl" 1787078193.29928 12743 a0fb340e6f7436b72e68581982efb56c "bibtex boltzmann_brain_en"
-  "boltzmann_brain_en.out" 1787078245.46574 15486 5f408e8e53086c3d91d3ddbc5737bab9 "pdflatex"
-  "boltzmann_brain_en.tex" 1787078243.31305 211403 46ead1589bb5f29ca392bcdb5816495b ""
+  "boltzmann_brain_en.aux" 1787081823.1797 47939 e6770f645318b1a38202a2b668ad1fff "pdflatex"
+  "boltzmann_brain_en.bbl" 1787081821.04786 13389 9ecd879f2642cb3abbfd6346c5c9eb86 "bibtex boltzmann_brain_en"
+  "boltzmann_brain_en.out" 1787081823.18255 15799 2c3ba21bb60b3ac865f0360dfc56ec00 "pdflatex"
+  "boltzmann_brain_en.tex" 1787081818.41235 220220 2051a6c35a9387f0c71ebced99c67121 ""
   "github.pdf" 1785931433.30461 3593 10e89d479465c26f610291715c46a22f ""
   "hf-logo.pdf" 1785931433.30494 14538 f844f4ce25811f457706ab3ba53c0258 ""
   "logo.pdf" 1785931433.30511 3159 7826d4dabf05dbb666decbee4bc84c11 ""
