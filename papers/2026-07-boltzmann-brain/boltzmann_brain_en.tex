@@ -1142,7 +1142,7 @@ Inverted                   & Blocks containing ``Fourier''.                 & Le
 Vector                     & ``Decompose a periodic function into sines''.  & Semantic similarity. \\
 Graph                      & Related concepts, evidence, dependencies.      & Associative traversal. \\
 Bitmap / facets & \texttt{semantic AND class=signals AND current}. & Efficient filter intersection. \\
-Catalog                    & Everything filed under ``Parciales''.          & Navigating evidence by axis. \\
+Catalog                    & Everything filed under ``Exams''.              & Navigating evidence by axis. \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -1263,7 +1263,7 @@ clean up.
 \begin{verbatim}
 scheme     { "kind": "scheme", "scheme": "subject", "exclusive": false }
 class      { "kind": "class",  "scheme": "subject", "label": "Fourier analysis" }
-placement  { "kind": "relation", "evidence": ["sha256:PARCIAL_2024"],
+placement  { "kind": "relation", "evidence": ["sha256:EXAM_2024"],
              "relations": [{ "predicate": "classified_as",
                              "target": "sha256:CLASS_FOURIER" }] }
 \end{verbatim}
@@ -1284,7 +1284,7 @@ supersession is a provenance edge and not a field on either block
 
 \paragraph{One axis is never enough.}
 A source on the Fourier transform is mathematics and is signal processing, and a
-past exam is also a past exam and also from 2024. Forcing a single tree means
+past exam is both an exam and a document from 2024. Forcing a single tree means
 choosing which of those questions a consumer is allowed to ask. Library
 classification reached this conclusion long before content addressing existed,
 and answered it with facets: a document takes coordinates on several independent
@@ -1298,17 +1298,17 @@ the one SKOS uses for the same purpose~\cite{skos2009}.
 \begin{tikzpicture}[x=1cm, y=1cm]
   % canonical row
   \node[smallbox, fill=gaussiasoft, draw=gaussiaccent] (p24) at (0,0)
-    {\scriptsize\texttt{parcial\_2024}};
+    {\scriptsize\texttt{exam\_2024}};
   \node[smallbox, fill=gaussiasoft, draw=gaussiaccent] (p25) at (3.7,0)
-    {\scriptsize\texttt{parcial\_2025}};
+    {\scriptsize\texttt{exam\_2025}};
   \node[smallbox, fill=gaussiasoft, draw=gaussiaccent] (ap)  at (7.1,0)
-    {\scriptsize\texttt{apunte}};
+    {\scriptsize\texttt{notes}};
   \node[lbl] at (-2.0,0) {canonical};
 
-  % axis 1: kind of material
-  \node[bluebox] (mat) at (1.85,2.0) {\scriptsize Parciales};
-  \node[bluebox] (apu) at (7.1,2.0)  {\scriptsize Apuntes};
-  \node[smallbox, draw=gaussiablue] (axm) at (4.4,3.5) {\scriptsize axis: material};
+  % axis 1: kind of document
+  \node[bluebox] (mat) at (1.85,2.0) {\scriptsize Exams};
+  \node[bluebox] (apu) at (7.1,2.0)  {\scriptsize Notes};
+  \node[smallbox, draw=gaussiablue] (axm) at (4.4,3.5) {\scriptsize axis: type};
   \draw[flow]  (axm) -- (mat);
   \draw[flow]  (axm) -- (apu);
   \draw[flowa] (mat) -- (p24);
@@ -1326,9 +1326,9 @@ the one SKOS uses for the same purpose~\cite{skos2009}.
   \draw[flowa] (y25) -- (ap);
 \end{tikzpicture}
 \caption{Two axes over the same three sources, grouping them differently:
-by material the sources split \{\texttt{parcial\_2024}, \texttt{parcial\_2025}\}
-against \{\texttt{apunte}\}, and by year they split \{\texttt{parcial\_2024}\}
-against \{\texttt{parcial\_2025}, \texttt{apunte}\}. Every accent edge is one
+by type the sources split \{\texttt{exam\_2024}, \texttt{exam\_2025}\} against
+\{\texttt{notes}\}, and by year they split \{\texttt{exam\_2024}\} against
+\{\texttt{exam\_2025}, \texttt{notes}\}. Every accent edge is one
 placement block. No canonical block is copied and none of them changes, so
 adding, removing, or restructuring an axis touches only the semantic module and
 the canonical root a consumer already holds stays exactly as it was.}
