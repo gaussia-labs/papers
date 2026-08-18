@@ -1744,25 +1744,51 @@ root} carried in the snapshot document under the key \texttt{trust\_root}:
   "namespace":     "boltzmann.snapshot.v1",
   "govern_quorum": 2,
   "keys": [
-    { "key":          "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5...",
-      "scopes":       ["ingest", "commit", "drop:canonical", "govern"],
-      "since":        "sha256:SNAPSHOT_R1" },
-    { "key":          "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5...",
-      "scopes":       ["ingest", "commit", "govern"],
-      "since":        "sha256:SNAPSHOT_R1" },
-    { "key":          "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5...",
-      "scopes":       ["propose"],
-      "since":        "sha256:SNAPSHOT_R2" },
-    { "key":          "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5...",
-      "scopes":       ["commit"],
-      "since":        "sha256:SNAPSHOT_R1",
-      "retired_from": "sha256:SNAPSHOT_R3" }
+    { "key":              "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5...",
+      "scopes":           ["ingest", "commit", "drop:canonical", "govern"],
+      "since":            1 },
+    { "key":              "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5...",
+      "scopes":           ["ingest", "commit", "govern"],
+      "since":            1 },
+    { "key":              "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5...",
+      "scopes":           ["propose"],
+      "since":            2 },
+    { "key":              "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5...",
+      "scopes":           ["commit"],
+      "since":            1,
+      "retired_from":     3 },
+    { "key":              "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5...",
+      "scopes":           ["commit"],
+      "since":            1,
+      "compromised_from": "sha256:SNAPSHOT_S41" }
   ]
 }
 \end{verbatim}
 Its identity is the digest of its canonical serialization, and that digest,
 rather than any individual key, is what a consumer pins
 (Section~\ref{sec:bootstrap}).
+
+\paragraph{Two forms of position, and why they are not interchangeable.}
+\texttt{since} and \texttt{retired\_from} name a \emph{revision number};
+\texttt{compromised\_from} names a \emph{snapshot digest}. The asymmetry is a
+construction constraint rather than a preference. A revision travels inside the
+snapshot that introduces it, so naming that snapshot by digest from within the
+trust root would be circular: the digest cannot be computed until the trust root
+is complete, and the trust root would not be complete until it named the digest.
+A revision number breaks the cycle and gives up nothing, because a revision
+corresponds to exactly one snapshot in the chain and the position is recoverable
+by walking parents. A \texttt{compromised\_from}, by contrast, always names a
+position that is already published, so its digest is known and no cycle arises;
+and the finer granularity is necessary rather than incidental, since a revision
+may be in force across many snapshots and a key compromised in the middle of
+that span cannot be described by a revision boundary.
+
+One consequence is worth making normative, because it removes an obvious lie. A
+revision that admitted a key is itself in the chain, so \texttt{since} is
+\emph{confirmable} rather than merely asserted: a verifier walking revisions sees
+when a key first appeared. A trust root claiming a \texttt{since} earlier than
+the chain supports MUST be rejected, which is what stops a key that has just
+added itself from also claiming to have been authorized from the beginning.
 
 \paragraph{Why it is not a sixth module.}
 Modules are selectively installable (Section~\ref{sec:selective}), so a consumer
@@ -1816,8 +1842,10 @@ is recoverable by a later commit that re-adds the block, whereas excluding
 canonical evidence forfeits re-derivation from that source.
 
 A verifier MUST compute the required scope set from the difference between the
-snapshot and its first parent and MUST reject a signature whose key does not
-hold every scope in that set, even if the signature claims fewer. The
+snapshot and its first parent, or, for a snapshot that has no parents, from its
+difference against the empty brain (Section~\ref{sec:genesis}), and MUST reject a
+signature whose key does not hold every scope in that set, even if the signature
+claims fewer. The
 \texttt{scopes} field of a signature record is therefore a statement of intent
 that aids diagnosis, never the basis of the decision. This mirrors the rule of
 Section~\ref{sec:schema-versioning}: a version is a statement about what the
@@ -1838,8 +1866,9 @@ everywhere, including after the bytes have left that repository.
 \paragraph{Changing the trust root requires a quorum.}
 If the key list were just another document, whoever can sign could add
 themselves to it and the structure would authorize itself. A \emph{trust-root
-revision} is therefore a snapshot whose \texttt{trust\_root} digest differs from
-its first parent's, and it MUST satisfy two conditions: it MUST be covered by at
+revision} is therefore a snapshot that has a first parent and whose
+\texttt{trust\_root} digest differs from that parent's, and it MUST satisfy two
+conditions: it MUST be covered by at
 least \texttt{govern\_quorum} valid signatures from distinct keys, and each of
 those keys MUST hold the \texttt{govern} scope in the trust root as it stood
 \emph{before} the change. Both halves matter, and evaluating against the
@@ -1894,15 +1923,17 @@ question with no clock involved. Two record forms express the two intents, and a
 conforming implementation MUST distinguish them:
 
 \begin{description}[leftmargin=2.2em, style=sameline, font=\normalfont\bfseries]
-  \item[\texttt{retired\_from}] The position at which the key ceased to be
+  \item[\texttt{retired\_from}] The revision from which the key is no longer
   authorized. Signatures at earlier positions remain valid. Retirement can never
   invalidate a signature that was valid before it, which is what makes an
   ordinary departure harmless.
-  \item[\texttt{compromised\_from}] A position from which the key's signatures
-  are no longer trusted. It MAY precede the revision that records it, because
-  compromise is usually discovered after the fact. This is the only construct in
-  this document that invalidates a previously valid signature, and a verifier
-  MUST report it as such rather than as an ordinary authorization failure.
+  \item[\texttt{compromised\_from}] A \emph{snapshot} from which the key's
+  signatures are no longer trusted. It MAY precede the revision that records it,
+  and it need not fall on a revision boundary, because compromise is discovered
+  after the fact and in the middle of a revision's span. This is the only
+  construct in this document that invalidates a previously valid signature, and a
+  verifier MUST report it as such rather than as an ordinary authorization
+  failure.
 \end{description}
 
 Stating that distinction plainly matters in operation: ``signed by a retired
@@ -1957,6 +1988,57 @@ position that may precede the revision recording it, and is the only construct
 that withdraws a signature already accepted.}
 \label{fig:governance}
 \end{figure}
+
+\subsection{Creating a brain: the genesis snapshot}
+\label{sec:genesis}
+
+Every rule stated so far is expressed against a snapshot's first parent, and one
+snapshot in every brain has none. The \texttt{init} operation
+(Table~\ref{tab:operations}) produces it, and because it is the origin of every
+authority the brain will ever have, its rules are stated rather than left to be
+inferred.
+
+A \emph{genesis snapshot} is a snapshot whose \texttt{parents} list is empty.
+A brain MUST have exactly one, and every other snapshot MUST be reachable from
+it by following parents. Its module compositions are usually empty, and an empty
+composition has a well-defined root (Section~\ref{sec:merkle}), so a brain with
+no knowledge in it is still a brain that verifies.
+
+Three rules follow, and each closes a gap the parent-relative phrasing would
+otherwise leave open.
+
+\paragraph{Its difference is taken against the empty brain.}
+A verifier computes the scopes a snapshot required from its difference with its
+first parent (Section~\ref{sec:trust-root}). For a genesis snapshot that
+difference is taken against a brain with no modules and no trust root, so every
+scope its content implies is required at once: \texttt{govern} because it
+establishes a trust root, and \texttt{ingest} or \texttt{commit} if it also
+carries blocks. A single self-signing key must therefore hold all of them, which
+is worth knowing before creating a brain with a narrowly scoped key.
+
+\paragraph{The quorum rule does not govern it, and this is the only exception.}
+A trust-root revision must be signed by keys authorized in the previous revision
+(Section~\ref{sec:trust-root}), and a genesis snapshot has no previous revision
+to draw on. It is therefore not a revision, and a verifier MUST NOT reject it for
+failing the quorum rule. This is the single point in the protocol where authority
+is asserted rather than derived, and Section~\ref{sec:bootstrap} is entirely
+about what to do with that fact.
+
+\paragraph{It SHOULD nonetheless satisfy its own declared quorum.}
+A genesis snapshot SHOULD carry at least \texttt{govern\_quorum} valid
+signatures from distinct keys listed in its own trust root. This proves nothing
+against an attacker, who can satisfy it just as easily, and it is not required
+for that reason. It is required for coherence: a brain that declares a quorum of
+two and whose founding act carried one signature is stating a rule it has already
+departed from, and an operator reading that history later cannot tell whether the
+second holder was ever real. An implementation MAY warn when a genesis snapshot
+carries fewer signatures than the quorum it declares.
+
+A genesis snapshot MAY be unsigned, and a brain whose genesis is unsigned is a
+brain with no authorship from the outset. That is the zero-configuration case of
+Section~\ref{sec:integrity-total}, and it remains fully verifiable for integrity.
+What it cannot later acquire is a signed history: signatures attach to snapshots,
+and the snapshots that were committed unsigned stay unsigned.
 
 \subsection{Bootstrap: the one thing that comes from outside}
 \label{sec:bootstrap}
@@ -2083,6 +2165,147 @@ signed), how many valid signatures a head must carry (default: one), whether a
 and which trust-root digests are pinned. What is not configurable is whether the
 result is reported: an implementation MUST NOT present an unverified brain as
 verified, whatever the policy allowed it to install.
+
+\subsection{Three cases, worked through}
+\label{sec:cases}
+
+The rules above are short, and their consequences are not obvious until they are
+run against a situation. Three cases cover what a deployment actually meets:
+admitting an owner, a key admitting itself, and starting from nothing.
+
+In the first two, the brain is at revision~1 with keys $A$ and $B$, both holding
+\texttt{govern}, a \texttt{govern\_quorum} of~2, and a chain reaching
+\texttt{S7}. A consumer has pinned the digest of revision~1.
+
+\paragraph{Case 1: admitting a third owner.}
+$C$ generates a key pair and sends the \emph{public} half. The channel need not
+be confidential, since nothing secret is transmitted, but the recipients do need
+independent grounds to believe the key is $C$'s, which is an out-of-band question
+the protocol does not answer. A trust root at revision~2 is built listing $A$,
+$B$, and $C$; a snapshot \texttt{S8} is built naming \texttt{S7} as its parent,
+carrying that trust root, and leaving every module root equal to \texttt{S7}'s,
+because a revision changes nothing else (Section~\ref{sec:trust-root}). $A$ and
+$B$ each sign \texttt{S8}, producing two detached signatures over the same bytes.
+
+When $C$ later commits \texttt{S9} and signs it, a consumer verifying that
+snapshot resolves a chain of five questions, and the last one is where it
+terminates:
+
+\begin{enumerate}[leftmargin=1.6em]
+  \item Does the structure recompute? Integrity, requiring no trust
+  (Section~\ref{sec:integrity-total}).
+  \item Does $C$'s signature verify over \texttt{S9}'s canonical bytes?
+  \item Which trust root is in force at \texttt{S9}? The one its first parent
+  names, which is revision~2, and $C$ is listed there.
+  \item Which scope did \texttt{S9} require? Its difference from \texttt{S8}
+  shows a non-canonical composition that gained blocks, so \texttt{commit},
+  which $C$ holds.
+  \item Why is revision~2 itself trustworthy? Because \texttt{S8} introduced it
+  carrying two signatures from $A$ and $B$, who held \texttt{govern} in
+  revision~1, whose digest matches the pin.
+\end{enumerate}
+
+Nothing in this requires $C$ to do anything unusual: $C$ commits and signs
+normally. What makes those signatures carry weight is that an earlier snapshot in
+the same chain authorized the key, signed by parties who were already authorized.
+The authorization travels inside the brain, so it reaches every consumer without
+anyone fetching anything extra.
+
+\paragraph{Case 2: a key admitting itself.}
+$C$ installs the brain, which is public and requires no permission, edits the
+trust root to include their own key, and builds \texttt{S8$'$} naming \texttt{S7}
+as its parent. $C$ signs it with their own key.
+
+The first two checks pass, and it is worth being explicit that they do. The
+structure recomputes, because $C$ recomputed it correctly. The signature
+verifies, because $C$ genuinely produced it. \emph{Integrity does not detect this
+attack}, which is the whole reason Section~\ref{sec:authenticity} exists.
+
+The third and fourth checks fail:
+
+\begin{itemize}[leftmargin=1.4em]
+  \item The trust root in force at \texttt{S8$'$} is the one its parent
+  \texttt{S7} names, which is revision~1, holding only $A$ and $B$. $C$'s key is
+  absent: \emph{unauthorized key}.
+  \item \texttt{S8$'$} changes the trust root relative to its first parent, so it
+  is a revision, and requires two signatures from keys holding \texttt{govern} in
+  revision~1. It carries none: \emph{quorum failure}.
+\end{itemize}
+
+The comparison with Case~1 is the point of stating both, and it is sharper than
+it first appears (Figure~\ref{fig:cases}):
+
+\begin{callout}
+The key list in Case~1 and the key list in Case~2 may be \textbf{byte-identical}.
+The same three keys, the same scopes, the same serialization. What distinguishes
+them is not the list. It is \emph{who signed the snapshot that introduced it}.
+\end{callout}
+
+An attacker can write any key list they like. What they cannot write are its
+approvals, because producing one requires a private key they do not hold. Two
+further consequences follow. Rejection propagates forward: a later snapshot
+naming \texttt{S8$'$} as its parent draws its trust root from a snapshot already
+rejected, so the whole subtree falls with it. And this case fails \emph{without
+any pin at all}, provided the consumer holds the chain, because the verifier is
+checking an internal transition rule rather than comparing against an external
+anchor. The chain the attacker must ship contains the evidence that the attacker's
+own change of authority was never approved.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[node distance=6mm and 11mm]
+  % legitimate
+  \node[smallbox] (l7) {\texttt{S7}};
+  \node[accentbox, right=of l7, text width=3.3cm] (l8)
+    {\texttt{S8}\\[1pt] \scriptsize trust root $\{A, B, C\}$};
+  \draw[flow] (l8) -- (l7);
+  \node[bluebox, right=of l8, text width=4.3cm] (l8s)
+    {\footnotesize signed by $A$ and $B$\\[1pt]
+     \scriptsize both held \textsf{govern} in revision 1};
+  \draw[flowa] (l8s) -- (l8);
+  \node[lbl, below=2mm of l8s] {accepted};
+  \node[lbl, left=3mm of l7] {case 1};
+
+  % malicious
+  \node[smallbox, below=17mm of l7] (m7) {\texttt{S7}};
+  \node[accentbox, right=of m7, text width=3.3cm] (m8)
+    {\texttt{S8$'$}\\[1pt] \scriptsize trust root $\{A, B, C\}$};
+  \draw[flow] (m8) -- (m7);
+  \node[bluebox, right=of m8, text width=4.3cm] (m8s)
+    {\footnotesize signed by $C$ alone\\[1pt]
+     \scriptsize $C$ held nothing in revision 1};
+  \draw[flowa] (m8s) -- (m8);
+  \node[lbl, below=2mm of m8s] {quorum failure};
+  \node[lbl, left=3mm of m7] {case 2};
+\end{tikzpicture}
+\caption{The same key list, admitted two ways. Both snapshots recompute
+correctly and both carry a signature that verifies, so integrity separates them
+not at all. What separates them is whether the snapshot introducing the new list
+carries approvals from keys that were already authorized, which an attacker
+cannot produce without the corresponding private keys.}
+\label{fig:cases}
+\end{figure}
+
+\paragraph{Case 3: starting from nothing.}
+There is no prior state, so nothing can be derived and the first authority is
+declared. $A$ and $B$ generate their key pairs; a trust root at revision~1 lists
+both with a \texttt{govern\_quorum} of~2; a genesis snapshot is built with an
+empty \texttt{parents} list, that trust root, and empty module compositions; and
+both keys sign it, satisfying the quorum the trust root itself declares
+(Section~\ref{sec:genesis}).
+
+Read from inside the artifact, this proves nothing, and the asymmetry with the
+first two cases is the useful thing to notice. There, what decided the outcome
+was a rule a verifier could check against material it already held. Here there is
+no such material: the trust root asserts that a key is authorized, and the entity
+asserting it is that key. Any party can construct an indistinguishable object.
+
+What gives a genesis meaning is therefore the step that happens outside it: the
+digest of revision~1 is published through an independent channel and pinned by
+consumers on first contact (Section~\ref{sec:bootstrap}). From that moment the
+derivable rules take over, and Cases~1 and~2 behave as described. Stated
+compactly: \emph{a genesis is not validated, it is anchored}, and it is the only
+object in this protocol of which that is true.
 
 \subsection{Which impersonation routes remain closed}
 \label{sec:impersonation}
@@ -2219,7 +2442,8 @@ installed snapshot; none of them requires a running service.}
   & \texttt{rotate}        & Commit a trust-root revision, under the quorum rule. \\
   & \texttt{revoke}        & Record that a key is retired, or compromised from a chain position. \\
 \midrule
-\multirow{8}{*}{Writer}
+\multirow{9}{*}{Writer}
+  & \texttt{init}          & Create a brain: a genesis snapshot with no parents and its first trust root (Section~\ref{sec:genesis}). \\
   & \texttt{register}      & Preserve a source as canonical evidence, with provenance. \\
   & \texttt{replace}       & Register a new edition and record supersession. \\
   & \texttt{define\_task}  & Emit a processing task for an external model. \\
