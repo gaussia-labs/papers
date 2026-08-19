@@ -68,6 +68,17 @@
 \renewcommand{\headrulewidth}{0.6pt}
 \rfoot{\thepage}
 
+% ---- Float placement ------------------------------------------------------
+% This document carries many wide tables. Without relaxed parameters (and a
+% float page allowed) the queue backs up and tables flush at the end.
+\renewcommand{\topfraction}{0.9}
+\renewcommand{\bottomfraction}{0.8}
+\renewcommand{\textfraction}{0.07}
+\renewcommand{\floatpagefraction}{0.75}
+\setcounter{topnumber}{3}
+\setcounter{bottomnumber}{2}
+\setcounter{totalnumber}{4}
+
 % ---- Shared callout box ----------------------------------------------------
 \newtcolorbox{callout}[1][]{
   colback=gaussiasoft, colframe=gaussiaccent,
@@ -122,34 +133,30 @@ inside a single provider, agent, or vector store, where it is hard to audit,
 reindex, version, or move. We propose \textbf{Boltzmann Brain}, a portable
 knowledge architecture built on one principle: the brain conserves, validates,
 and retrieves knowledge, while an external and interchangeable LLM processes,
-contextualizes, and uses it. The brain never embeds a model of its own.
-Knowledge is stored as typed, content-addressed blocks organized into five
-memory modules (canonical, episodic, semantic, procedural, and provenance),
-inspired by complementary learning systems and hippocampal indexing rather
-than by literal brain-to-database mappings. Each module bundles its blocks, a
-Merkle DAG that pins the exact composition of a version, and the indices needed
-to query it. We separate three levels of hashes, one for block identity, one
-for the Merkle root of a snapshot, and one for the OCI digest of a distributed
-blob, and show how packaging each module as a separate OCI Artifact yields
-selective installation and incremental updates. Interaction happens through the
-\emph{Boltzmann Protocol}: during ingestion and query the LLM proposes candidate
-blocks and consumes Evidence Bundles, while the protocol governs what is
-committed and returns only verified evidence, never prose. Because the brain is
-portable data addressed by a protocol rather than a deployable service, the same
-snapshot can be read and extended by any conforming client. Canonical blocks are
-the root of evidence: they record what was observed, not what is true, and every
-derived interpretation cites them through provenance. Because wrong knowledge
-must be removable without punching holes in the current snapshot, we specify how
-non-episodic modules drop blocks, rebuild their Merkle DAGs, and cascade through
-provenance, with a privileged cascade when the dropped block is canonical, and
-with redaction reserved for destroying retained bytes. Beyond the architecture,
-this version fixes the wire formats an independent implementation needs in order
-to interoperate: the block envelope and its canonical serialization, the Merkle
-construction and its layout identifier, the composition and snapshot documents,
-the OCI media types and annotations, the ingestion and query contracts, and a
-conformance kit of golden vectors. What remains open is authenticity: the
-protocol establishes that an artifact is intact, not who produced it, and it
-defines no reconciliation for two brains that diverged.
+contextualizes, and uses it. The brain embeds no model of its own. Knowledge is
+stored as typed, content-addressed blocks organized into five memory modules:
+canonical, episodic, semantic, procedural, and provenance. Each module bundles
+its blocks, a Merkle DAG that pins the exact composition of a version, and its
+indices. We separate three levels of hashes, for block identity, module
+composition, and transportable file, and package each module as a separate OCI
+Artifact, which yields selective installation and incremental updates.
+Interaction happens through the \emph{Boltzmann Protocol}: the LLM proposes
+candidate blocks and consumes Evidence Bundles, while the protocol governs what
+is committed and returns evidence, never prose. Canonical blocks are the root of
+evidence, recording what was observed, and every derived interpretation cites
+them through provenance. Wrong knowledge must be removable without punching
+holes in the current snapshot, so non-episodic modules drop blocks, rebuild their
+Merkle DAGs, and cascade through provenance, with redaction reserved for
+destroying retained bytes. This version fixes the interoperability surface, from
+the block envelope to a conformance kit of golden vectors, and separates
+integrity from \emph{authenticity}, which hashing alone cannot supply. One
+detached signature over a snapshot covers every module root and the entire prior
+history, the authorized keys travel inside the brain, and validity is decided by
+position in the hash-linked chain, never by a forgeable timestamp. Divergence
+becomes reconciliation: snapshots name several parents, compositions merge as
+sets of immutable blocks, and the result is re-validated as an ingestion. We
+close with the adversarial model this design implies, including what it leaves
+open.
 \end{abstract}
 
 \keywords{knowledge representation, retrieval-augmented generation, content
@@ -173,7 +180,7 @@ This paper argues that knowledge should be a \emph{first-class, portable
 artifact} that outlives any particular model or vendor. We present
 \textbf{Boltzmann Brain}, an architecture whose sole responsibility is to
 conserve information, organize it into memories with distinct purposes,
-maintain verifiable versions, and retrieve relevant evidence. Crucially, the
+maintain verifiable versions, and retrieve relevant evidence. The
 brain contains no language model of its own. It integrates with whatever LLM
 the user chooses, which interprets sources during ingestion and contextualizes
 results during query. The design is captured by a single guiding idea:
@@ -222,6 +229,20 @@ This work makes the following contributions:
   and~\ref{sec:snapshot}), the schema-versioning rules that let old clients read
   new brains (Section~\ref{sec:schema-versioning}), and a conformance kit of
   golden vectors (Section~\ref{sec:conformance}).
+  \item A specification of authenticity (Section~\ref{sec:authenticity}):
+  signatures over snapshots, a trust root that travels inside the brain, signing
+  scopes derived from the protocol's own operations, quorum-governed rotation of
+  the key list, and revocation expressed by position in the hash-linked chain
+  rather than by a clock.
+  \item A reconciliation model for diverged brains
+  (Section~\ref{sec:divergence}): multi-parent snapshots, a three-way merge over
+  sets of immutable blocks, merge, rebase, and squash recast as recording
+  strategies that differ in attribution rather than in outcome, and a rule that
+  resolves the conflicts that remain by re-validating the result as an ingestion.
+  \item A Security Considerations section (Section~\ref{sec:security}) stating
+  what the protocol guarantees, what it does not, and where the burden sits,
+  including the structural exposure created by routing preserved evidence into an
+  external model.
 \end{enumerate}
 
 \paragraph{Scope of this version.}
@@ -233,10 +254,13 @@ the distribution encoding, and the ingestion and query contracts
 (Section~\ref{sec:conformance} states how an implementation demonstrates
 agreement). What stays deliberately open is what an implementation may choose
 without breaking exchange: consolidation and contradiction-detection
-strategies, ranking and fusion, index engines, and pack sizing. Two questions
-remain open in the normative surface itself, and Section~\ref{sec:conclusion}
-states them as such: authenticity of authorship, and reconciliation of diverged
-brains.
+strategies, ranking and fusion, index engines, and pack sizing. The two
+questions an earlier version left open in the normative surface itself,
+authenticity of authorship and reconciliation of diverged brains, are specified
+here (Sections~\ref{sec:authenticity} and~\ref{sec:divergence}).
+Section~\ref{sec:security} states the exposures that remain, and
+Section~\ref{sec:conclusion} states what the protocol still owes, chiefly
+freshness, which no signature establishes.
 
 \paragraph{Notational conventions.}
 The key words \textbf{MUST}, \textbf{MUST NOT}, \textbf{SHOULD}, and
@@ -289,8 +313,7 @@ LLM-era knowledge is currently stored and consumed:
   agent, or vector database.
   \item Maintaining a source of evidence that allows knowledge to be
   reindexed and reinterpreted as models and methods evolve.
-  \item Distinguishing concrete experiences, general facts, and procedures,
-  rather than collapsing everything into undifferentiated chunks.
+  \item Distinguishing concrete experiences, general facts, and procedures.
   \item Updating knowledge without losing history, provenance, or
   reproducibility.
   \item Removing knowledge that is obsolete, costly, or legally untenable,
@@ -302,7 +325,7 @@ LLM-era knowledge is currently stored and consumed:
 
 \subsection{Guiding principles}
 
-Eight principles follow from these problems and constrain every subsequent
+Ten principles follow from these problems and constrain every subsequent
 design decision:
 
 \begin{enumerate}[leftmargin=1.6em]
@@ -321,6 +344,13 @@ design decision:
   with Merkle rebuild and provenance cascade; dropping canonical evidence is
   privileged and always cascades; content may be redacted under policy, but
   never silently.
+  \item Integrity and authenticity are separate claims. Integrity is verifiable
+  by anyone, offline, with no configuration; authorship is a signed assertion
+  evaluated against a trust root that travels inside the brain; and neither claim
+  may ever be reported as the other.
+  \item Divergence is reconciled, not overwritten. Two brains that advanced from
+  a common ancestor are merged as sets of immutable blocks, and the result is
+  re-validated before it is committed.
 \end{enumerate}
 
 These principles are intentionally conservative. They privilege durability and
@@ -396,7 +426,7 @@ brain regions and system components.}
 Alongside biology, the architecture reuses well-understood systems structures.
 Table~\ref{tab:systems} lists each one and its contribution.
 
-\begin{table}[htb]
+\begin{table}[htbp]
 \centering
 \caption{Systems structures and their contribution to Boltzmann Brain.}
 \label{tab:systems}
@@ -421,15 +451,15 @@ Skill / MCP / CLI / API   & Contract for an external LLM to query and ingest. \\
 \section{Related Work and the Case for a New Protocol}
 \label{sec:related}
 
-\subsection{The landscape}
+\subsection{What already exists}
 
 The industry is already solving pieces of this problem, but no single artifact
 yet integrates a canonical source, typed memories, fine-grained versioning,
 portable indices, modular distribution, and a model-agnostic access protocol.
-Table~\ref{tab:related} positions the most relevant efforts; we then discuss
+Table~\ref{tab:related} positions the most relevant efforts. We then discuss
 them in turn.
 
-\begin{table}[htb]
+\begin{table}[htbp]
 \centering
 \caption{Related efforts and their distance from Boltzmann Brain.}
 \label{tab:related}
@@ -516,7 +546,7 @@ versioning and distribution from Git rather than defining them at the knowledge
 layer. What no row does is combine more than a fraction of the six, which is the
 gap this paper addresses.
 
-\begin{table}[htb]
+\begin{table}[htbp]
 \centering
 \caption[Design coverage of the six requirements]{Design coverage of the six
 requirements of Section~\ref{sec:requirements}: \cfull\ full, \cpart\ partial,
@@ -614,7 +644,7 @@ installable as an independent physical unit and contains blocks, a Merkle DAG,
 and the indices needed for query. Table~\ref{tab:modules} names each module by
 the question it answers.
 
-\begin{table}[htb]
+\begin{table}[htbp]
 \centering
 \caption{The five memory modules, illustrated with a university brain.}
 \label{tab:modules}
@@ -681,14 +711,17 @@ given function.
 Connects derived blocks to evidence, transformations, and tool versions. It is
 key to answering what must be recomputed when a source changes, and it is the
 ledger of removals: every drop, cascade, and redaction is recorded there so
-that exclusion stays auditable (Section~\ref{sec:forgetting}).
+that exclusion stays auditable (Section~\ref{sec:forgetting}). The actor named
+in a provenance record is a \emph{declared} identifier; what turns it into an
+authenticated identity is the signature over the snapshot that committed the
+record (Section~\ref{sec:authenticity}), which is why authenticity belongs in this specification.
 
 Provenance is not free-form annotation. It carries six kinds of record
 (Table~\ref{tab:provenance}), and the set is closed because every other part of
 the protocol depends on being able to ask a precise question of it: which blocks
 cite this evidence, what produced this block, and what was removed by whom.
 
-\begin{table}[htb]
+\begin{table}[htbp]
 \centering
 \caption{The provenance records, and what each one makes answerable.}
 \label{tab:provenance}
@@ -710,8 +743,7 @@ Two distinctions inside these records carry weight elsewhere. An \emph{actor} is
 who performed an operation, while a \emph{producer} is what generated a derived
 block, recorded at the granularity a batch invalidation needs: a model, a
 pipeline, an ingestion batch, or an actor. That granularity is what makes
-Section~\ref{sec:drop}'s batch invalidation expressible as a query over
-provenance rather than as a second mechanism. And because registration records
+Section~\ref{sec:drop}'s batch invalidation expressible as a query over provenance. And because registration records
 live here rather than inside canonical blocks, re-registering an identical
 source deduplicates while still recording that a second actor incorporated it.
 
@@ -910,12 +942,12 @@ descent through stored nodes.
 \paragraph{Why a DAG rather than a tree.}
 Because blocks are shared across versions. When a new version reuses unchanged
 blocks, those blocks are shared by hash instead of duplicated, so a node may be
-referenced by more than one root; the structure is therefore a directed acyclic
+referenced by more than one root. The structure is therefore a directed acyclic
 graph, as in Git's object store. This structural sharing is what makes
 incremental updates cheap (Section~\ref{sec:distribution}): a new version adds
 only the changed blocks and a new root, and reuses everything else by
 reference. What sharing guarantees is precisely this reuse of blocks, which are
-the bytes a consumer would otherwise have to transfer; how much of the DAG's
+the bytes a consumer would otherwise have to transfer. How much of the DAG's
 internal structure above the leaves is also reused depends on the layout a
 conforming implementation chooses, and internal nodes carry no content of their
 own, being hashes of hashes.
@@ -1028,7 +1060,8 @@ is.
                    "embedding_model": "bge-m3@1.5" }
   },
   "created_at": "2026-07-24T10:15:00Z",
-  "parent":     "sha256:PREVIOUS_SNAPSHOT",
+  "parents":    ["sha256:PREVIOUS_SNAPSHOT"],
+  "trust_root": { ... authorized keys and their scopes ... },
   "labels":     { "release": "v8" }
 }
 \end{verbatim}
@@ -1039,7 +1072,7 @@ block count, the layout, and, when a vector index travels with the module, the
 embedding model and version that produced it
 (Section~\ref{sec:indices-derived}).
 
-Three properties of this document do most of the work in the rest of the paper.
+Five properties of this document do most of the work in the rest of the paper.
 
 \paragraph{It is the unit of atomic change.}
 Adding one semantic block also advances provenance, and a canonical drop can
@@ -1049,12 +1082,17 @@ affected module in a single successor snapshot rather than one at a time:
 minting intermediate snapshots that were never published would leave the parent
 chain pointing at documents no consumer can resolve.
 
-\paragraph{It is a chain.}
-The \texttt{parent} field names the snapshot this one succeeds, so the history
-of a brain is an auditable chain of versions rather than a sequence of
+\paragraph{It is a chain, and occasionally a graph.}
+The \texttt{parents} field names the snapshots this one succeeds, so the history
+of a brain is an auditable hash-linked structure rather than a sequence of
 unrelated roots. This is what a consumer walks to tell whether a remote brain is
 ahead of, behind, or diverged from a local one
-(Section~\ref{sec:local-state}).
+(Section~\ref{sec:local-state}). A linear history carries one entry, which is
+the ordinary case; a first snapshot carries none; a reconciliation of two
+histories carries two or more (Section~\ref{sec:divergence}). The list is
+ordered, and the \emph{first} parent is the history a reconciliation was
+performed onto: every rule elsewhere in this document that speaks of ``the
+parent'' of a snapshot means that one.
 
 \paragraph{It is a subset, not necessarily the whole.}
 A brain may hold only some modules, because selective installation is the point
@@ -1069,6 +1107,19 @@ digest, not a fourth kind of hash (Section~\ref{sec:hashes}). It is made
 \emph{of} Merkle roots and is identified \emph{by} an OCI digest, and keeping
 those two straight is the whole point of the three-level separation.
 
+\paragraph{It carries the trust root.}
+The \texttt{trust\_root} member holds the keys authorized to sign for this brain
+and the scopes each one holds (Section~\ref{sec:trust-root}). It lives here
+rather than in a module or a layer because it MUST reach every install, complete
+or partial, and because carrying it inside the signed document means a signature
+can never be evaluated against a key list the signer did not commit to.
+
+\paragraph{Its timestamp decides nothing.}
+The \texttt{created\_at} member is descriptive. It is written by whoever built
+the snapshot, so a conforming implementation MUST NOT use it for any security or
+ordering decision. Ordering comes from the parent chain, which cannot be altered
+without changing every descendant (Section~\ref{sec:revocation}).
+
 \subsection{Indices}
 \label{sec:indices-derived}
 
@@ -1077,7 +1128,7 @@ inside the same module so that each consumer need not recompute them, but they
 never replace the content. Table~\ref{tab:indices} lists the indices and their
 roles.
 
-\begin{table}[htb]
+\begin{table}[htbp]
 \centering
 \caption{Indices, their typical queries, and their role.}
 \label{tab:indices}
@@ -1090,7 +1141,8 @@ B\textsuperscript{+} tree  & Episodes between two dates; concept by ID.     & Or
 Inverted                   & Blocks containing ``Fourier''.                 & Lexical matching. \\
 Vector                     & ``Decompose a periodic function into sines''.  & Semantic similarity. \\
 Graph                      & Related concepts, evidence, dependencies.      & Associative traversal. \\
-Bitmap / facets            & \texttt{semantic AND subject=signals AND current}. & Efficient filter intersection. \\
+Bitmap / facets & \texttt{semantic AND class=signals AND current}. & Efficient filter intersection. \\
+Catalog                    & Everything filed under ``Exams''.              & Navigating evidence by axis. \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -1115,6 +1167,40 @@ republish a placeholder in its stead: an artifact whose layer claims a vector
 index and carries none is worse than one that omits the layer, because a consumer
 can detect the absence and cannot detect the emptiness.
 
+\paragraph{A travelling index MUST be bound to the composition it was built over.}
+Three requirements stated elsewhere in this document compose badly if this is
+left implicit. A travelling index cannot be rebuilt by a model-agnostic client,
+which is the only reason it travels. A drop rebuilds the module's indices from
+the new composition (Section~\ref{sec:drop}). And no operation in this protocol
+removes a single entry from an index, because indices are built and queried, never edited. Put together, an implementation that does the obvious thing
+publishes, after a drop, an index that still contains the representation of the
+dropped block.
+
+Queries stay correct, because a hit that is no longer a member fails membership
+verification and is filtered out (Section~\ref{sec:query}). That is what makes
+this worse rather than better: it is not a retrieval bug, so nothing surfaces to
+be noticed, and the published artifact silently carries a learned representation
+of content that was deliberately excluded. For a drop motivated by law or safety
+that leaks precisely what the drop was meant to remove, and text embeddings
+recover enough of their input for the concern to be a practical one~\cite{morris2023embeddings}. This is the \emph{ordinary} path, not
+the exceptional one: Section~\ref{sec:forgetting} presents drop as the normal
+removal mechanism and redaction as the rare exception, and it is the common case
+that leaks.
+
+Three rules close it. A travelling index MUST record the module root it was built
+over, so that staleness is detectable rather than invisible. An implementation
+MUST NOT publish an index built over a composition other than the one its module
+names: a model-bearing client rebuilds the index, and a client that cannot
+rebuild it MUST omit the layer rather than ship a stale one, which is the
+argument of the previous paragraph carried one step further. And a consumer that
+meets an index bound to a root other than the installed one MUST report it as
+stale and MUST NOT answer queries from it. Removing individual entries is
+permitted where an engine supports it and stays an implementation matter rather
+than a protocol operation, because deletion from an approximate
+nearest-neighbour structure is engine-specific and lossy. What the protocol
+requires is narrower and checkable: a published artifact MUST NOT claim an index
+it did not build over the composition it ships.
+
 This separation has a representational reading. A block carries meaning in two
 portable, \emph{symbolic} forms: its text and its explicit relations to other
 blocks, the edges that in aggregate form the knowledge graph. Learned,
@@ -1127,6 +1213,160 @@ space from whichever model queries it. This also clarifies a naming
 coincidence: the \emph{semantic} module denotes general, consolidated knowledge
 (as opposed to episodic memory), not an embedding-based representation.
 
+\subsection{The catalog: making canonical evidence navigable}
+\label{sec:catalog}
+
+A canonical module that holds five hundred sources is, to a consumer, five
+hundred hashes. The protocol says what each one is and proves that it is intact,
+and it says nothing at all about where any of it belongs. A brain published that
+way is a pile, and the party best placed to organize it, the one who assembled
+it, has no way to record the organization so that it travels with the artifact.
+
+Section~\ref{sec:query} already assumes otherwise. Its request carries a
+\texttt{subject} filter, which until now was free text matched against nothing
+this document defines. This subsection supplies what that filter needs.
+
+\paragraph{Where classification cannot live.}
+Two placements are ruled out before any design begins, and both follow from
+constraints stated earlier.
+
+It cannot live inside the canonical block. A canonical block carries only what
+its bytes determine, so that re-registering an identical original is a no-op
+(Section~\ref{sec:modules}). A classification written into the payload would
+enter \texttt{block\_id}, two parties filing the same PDF under different
+headings would compute different identities, and the evidence would fork every
+time someone changed their mind about where it goes.
+
+It cannot live in provenance either, and the reason is practical. A processing
+task MUST NOT allow candidates in the canonical or provenance modules
+(Section~\ref{sec:ingestion}), so a classification held there could never be
+proposed by a model. Filing a corpus of any size by hand is not a workable
+requirement.
+
+\paragraph{Classification is consolidated knowledge.}
+What remains is the correct answer and not merely the surviving one. ``This
+source is about Fourier analysis'' is a claim derived from reading the source,
+which is precisely what the semantic module holds and precisely what the
+ingestion path produces. Placing it there means a model may propose it, the
+validation of Section~\ref{sec:validation} judges it, a drop removes it, and
+\texttt{rederive} rebuilds it. No new machinery is introduced.
+
+\paragraph{Three kinds of block.}
+A \emph{scheme} declares an axis of classification and whether that axis is
+exclusive. A \emph{class} is a node on one axis, carrying a label and the scheme
+it belongs to. A \emph{placement} files one canonical block under one class, and
+cites that canonical block as its evidence, which is what makes the canonical
+cascade of Section~\ref{sec:drop} apply to it without a special rule: dropping a
+source removes its filings in the same commit, and nothing has to remember to
+clean up.
+
+\begin{verbatim}
+scheme     { "kind": "scheme", "scheme": "subject", "exclusive": false }
+class      { "kind": "class",  "scheme": "subject", "label": "Fourier analysis" }
+placement  { "kind": "relation", "evidence": ["sha256:EXAM_2024"],
+             "relations": [{ "predicate": "classified_as",
+                             "target": "sha256:CLASS_FOURIER" }] }
+\end{verbatim}
+
+\paragraph{Hierarchy is a block, not a field.}
+A class does not name its parent. The narrowing relation between two classes is
+its own block, naming both endpoints, and the asymmetry with a placement is
+deliberate: a placement takes its source from \texttt{evidence} and needs one
+edge, while a narrowing has two class endpoints and no evidence at all.
+
+Recording the parent as a field on the class would put it inside that class's
+\texttt{block\_id}. Moving a node in the taxonomy would then change the node's
+identity, every placement pointing at the old identity would dangle, and
+reorganizing one heading would invalidate everything filed beneath it.
+Reorganization is routine, so it must be cheap. This is the same reason
+supersession is a provenance edge and not a field on either block
+(Section~\ref{sec:ingestion}).
+
+\paragraph{One axis is never enough.}
+A source on the Fourier transform is mathematics and is signal processing, and a
+past exam is both an exam and a document from 2024. Forcing a single tree means
+choosing which of those questions a consumer is allowed to ask. Library
+classification reached this conclusion long before content addressing existed,
+and answered it with facets: a document takes coordinates on several independent
+axes instead of one shelf position~\cite{ranganathan1967prolegomena}. A brain
+therefore MAY declare several schemes, and a canonical block MAY hold placements
+on each of them. The \texttt{broader} and \texttt{narrower} vocabulary here is
+the one SKOS uses for the same purpose~\cite{skos2009}.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[x=1cm, y=1cm]
+  % canonical row
+  \node[smallbox, fill=gaussiasoft, draw=gaussiaccent] (p24) at (0,0)
+    {\scriptsize\texttt{exam\_2024}};
+  \node[smallbox, fill=gaussiasoft, draw=gaussiaccent] (p25) at (3.7,0)
+    {\scriptsize\texttt{exam\_2025}};
+  \node[smallbox, fill=gaussiasoft, draw=gaussiaccent] (ap)  at (7.1,0)
+    {\scriptsize\texttt{notes}};
+  \node[lbl] at (-2.0,0) {canonical};
+
+  % axis 1: kind of document
+  \node[bluebox] (mat) at (1.85,2.0) {\scriptsize Exams};
+  \node[bluebox] (apu) at (7.1,2.0)  {\scriptsize Notes};
+  \node[smallbox, draw=gaussiablue] (axm) at (4.4,3.5) {\scriptsize axis: type};
+  \draw[flow]  (axm) -- (mat);
+  \draw[flow]  (axm) -- (apu);
+  \draw[flowa] (mat) -- (p24);
+  \draw[flowa] (mat) -- (p25);
+  \draw[flowa] (apu) -- (ap);
+
+  % axis 2: year
+  \node[bluebox] (y24) at (0,-2.0)   {\scriptsize 2024};
+  \node[bluebox] (y25) at (5.4,-2.0) {\scriptsize 2025};
+  \node[smallbox, draw=gaussiablue] (axy) at (2.7,-3.5) {\scriptsize axis: year};
+  \draw[flow]  (axy) -- (y24);
+  \draw[flow]  (axy) -- (y25);
+  \draw[flowa] (y24) -- (p24);
+  \draw[flowa] (y25) -- (p25);
+  \draw[flowa] (y25) -- (ap);
+\end{tikzpicture}
+\caption{Two axes over the same three sources, grouping them differently:
+by type the sources split \{\texttt{exam\_2024}, \texttt{exam\_2025}\} against
+\{\texttt{notes}\}, and by year they split \{\texttt{exam\_2024}\} against
+\{\texttt{exam\_2025}, \texttt{notes}\}. Every accent edge is one
+placement block. No canonical block is copied and none of them changes, so
+adding, removing, or restructuring an axis touches only the semantic module and
+the canonical root a consumer already holds stays exactly as it was.}
+\label{fig:catalog}
+\end{figure}
+
+\paragraph{The catalog index.}
+The classification blocks are the source of truth, in the sense Principle~1
+requires, and the \emph{catalog} is the derived index over them: what is filed
+under a class, which classes a source holds, and what the axes look like.
+
+Unlike the vector index of Section~\ref{sec:indices-derived}, a catalog is a
+deterministic function of blocks a client already has, so any client rebuilds it
+and no model is required. It MAY nonetheless travel with the canonical module,
+bound to the composition it was built over under the staleness rule of
+Section~\ref{sec:indices-derived}, so that a consumer installing only canonical
+receives a navigable brain instead of a pile.
+
+\paragraph{Normative rules.}
+A canonical block MUST NOT carry classification. Reclassification MUST NOT
+change any canonical composition, so a consumer that already holds the evidence
+transfers nothing when a publisher reorganizes it. A class MUST NOT name its
+parent as a payload field. A placement MUST cite the canonical block it files as
+evidence. Where a scheme declares itself exclusive, a second placement for the
+same block on that axis MUST yield \texttt{CONTRADICTED} rather than silently
+coexist. And this document defines no scheme of its own: which axes exist, and
+what is on them, is a decision each brain records, in the same way it records a
+retention policy.
+
+\begin{callout}[title={What this buys, and what it costs}]
+The evidence is untouched, so reorganizing the whole library moves no bytes and
+invalidates no root. One source appears on as many axes as it deserves with no
+copy of it anywhere. A drop removes its filings through the cascade that already
+exists. Against that: classifying a large corpus for the first time is one model
+pass per source, and a consumer that installs no semantic module and receives no
+travelling catalog still sees the pile.
+\end{callout}
+
 \subsection{Three levels of hashes}
 \label{sec:hashes}
 
@@ -1134,7 +1374,7 @@ A recurring source of confusion is that the same cryptographic algorithm is
 used for three different kinds of identity. Table~\ref{tab:hashes} separates
 them.
 
-\begin{table}[htb]
+\begin{table}[htbp]
 \centering
 \caption{Three levels of hashes.}
 \label{tab:hashes}
@@ -1209,8 +1449,7 @@ protocol-level refusal could not express.
 \label{sec:distribution}
 
 OCI is a standard for content-addressed manifests, descriptors, and blobs. A
-compatible registry stores the blobs and allows referencing them by tag or
-digest; the specification organizes its components as an external Merkle DAG of
+compatible registry stores the blobs and allows referencing them by tag or digest. The specification organizes its components as an external Merkle DAG of
 descriptors~\cite{oci_image_manifest, oci_descriptor, oras_artifacts}.
 Figure~\ref{fig:oci} shows how OCI distributes modules while the internal
 Merkle versions the blocks within each module.
@@ -1258,14 +1497,17 @@ manifest  artifactType: application/vnd.gaussia.boltzmann.brain.v1+json
 The OCI manifest is small, and downloading it does not imply downloading any
 module. Making the snapshot the config blob means the same document is both the
 local state and the wire format, so publishing is a transfer rather than a
-conversion.
+conversion. It also means the trust root of Section~\ref{sec:trust-root} arrives
+with every install, since there is no install that does not fetch the config.
+Signatures are deliberately absent from this listing: they are published as
+separate artifacts referring to the manifest, for reasons
+Section~\ref{sec:publish-signed} gives.
 
 \paragraph{Media types.}
-Two clients that disagree on media types cannot pull each other's brains, so
-these are normative rather than left to an implementation
+Two clients that disagree on media types cannot pull each other's brains, so these are normative here
 (Table~\ref{tab:mediatypes}).
 
-\begin{table}[htb]
+\begin{table}[htbp]
 \centering
 \caption{Normative media types.}
 \label{tab:mediatypes}
@@ -1277,6 +1519,7 @@ Artifact type & \texttt{application/vnd.gaussia.boltzmann.brain.v1+json} \\
 Config (snapshot) & \texttt{application/vnd.gaussia.boltzmann.snapshot.v1+json} \\
 Module layer & \texttt{application/vnd.gaussia.boltzmann.module.\{type\}.v1.tar+gzip} \\
 Vector index layer & \texttt{application/vnd.gaussia.boltzmann.index.vector.v1+bin} \\
+Signature record & \texttt{application/vnd.gaussia.boltzmann.signature.v1+json} \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -1284,17 +1527,17 @@ Vector index layer & \texttt{application/vnd.gaussia.boltzmann.index.vector.v1+b
 A module layer is a tar archive holding the module's composition document and
 its block bytes. Both the tar and the compression stream MUST be written
 deterministically, so that two clients packing the same module produce
-byte-identical layers; without that, registry deduplication silently stops
+byte-identical layers. Without that, registry deduplication silently stops
 working and every publish transfers blobs the registry already holds. Gzip is
 specified rather than a denser codec because it is universally available: a
 client that needed an extra dependency to read a published brain would be
 trading portability for a few percent.
 
 \paragraph{Annotations.}
-The manifest carries what a consumer needs in order to decide \emph{before}
+The manifest carries what a consumer needs to decide \emph{before}
 downloading (Table~\ref{tab:annotations}).
 
-\begin{table}[htb]
+\begin{table}[htbp]
 \centering
 \caption{Manifest and layer annotations, all prefixed \texttt{ai.gaussia.boltzmann}.}
 \label{tab:annotations}
@@ -1311,6 +1554,8 @@ downloading (Table~\ref{tab:annotations}).
 \texttt{embedding-model}  & Model and version behind a vector index layer. \\
 \texttt{index-kind}       & Which kind of index a travelling index layer carries. \\
 \texttt{source-snapshot}  & The publisher's full snapshot this artifact was projected from. \\
+\texttt{trust-root}       & Digest of the trust root carried in the snapshot, so a consumer can compare it against a pin before transferring anything (Section~\ref{sec:bootstrap}). \\
+\texttt{index-root}       & The module root a travelling index layer was built over (Section~\ref{sec:indices-derived}). \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -1330,6 +1575,7 @@ snapshot it was projected from, pushing a projection back to the same tag would
 look like a divergence when nothing diverged.
 
 \subsection{Selective installation}
+\label{sec:selective}
 
 To install only the episodic module, the client resolves the descriptor marked
 as \texttt{episodic} and downloads \texttt{sha256:BBB}. It does not need to
@@ -1347,7 +1593,7 @@ If only the semantic module changes, the new manifest can reuse the digests of
 the remaining modules. The consumer downloads only the new semantic blob;
 inside it, the Merkle root reveals which logical blocks changed.
 
-\begin{table}[htb]
+\begin{table}[htbp]
 \centering
 \caption{An incremental update touches only the changed module's digest.}
 \label{tab:incremental}
@@ -1385,8 +1631,7 @@ can be interrupted without corrupting a brain.
 Alongside the current snapshot, a brain keeps a set of retained snapshots:
 tagged releases plus a bounded number of recent ones. This set is what
 reachability is computed from when pruning reclaims blocks
-(Section~\ref{sec:forgetting}), and it is what gives ``a retained root'' a
-precise meaning rather than an intuitive one.
+(Section~\ref{sec:forgetting}), and it is what gives ``a retained root'' a precise meaning.
 
 \paragraph{Origin.}
 A brain pulled from a registry MUST record where it came from: the repository
@@ -1403,14 +1648,881 @@ fast-forwards. If it is not, the two brains have diverged, and the
 implementation MUST refuse the publish and report where the histories parted,
 rather than overwrite.
 
-This is where the protocol currently stops. A snapshot names one parent, so a
-merge is not representable, and this document defines no reconciliation for two
-brains that both advanced from a common ancestor. Refusing is the safe behavior,
-not a complete one: it leaves the operator to reconcile by hand, and it means
-that a partial install can never be published back over the tag it came from,
-because doing so would quietly drop the modules that were never fetched.
-Section~\ref{sec:conclusion} states reconciliation as one of the two open
-problems this version leaves.
+Refusing is where this subsection's obligation ends, not where the protocol
+stops. Detecting divergence is a reader's duty and belongs here; deciding what to
+do next is a separate question, and Section~\ref{sec:divergence} answers it.
+Because a snapshot names its parents as a list, a reconciliation is
+representable, and because a module composition is a set of immutable blocks,
+most of one is mechanical. Two cases this subsection would otherwise leave
+stranded are resolved there rather than by hand: a diverged history becomes a
+snapshot with two parents, and a partial install is published back as a
+reconciliation in which the modules it never fetched take their roots from the
+remote unchanged (Section~\ref{sec:partial-publish}).
+
+% ===========================================================================
+\section{Authenticity and Trust}
+\label{sec:authenticity}
+
+Everything specified so far establishes that a brain is \emph{intact}. Nothing
+specified so far establishes \emph{who assembled it}. Those are two different
+claims, and this section separates them, identifies the single assertion the
+hash structure cannot make on its own, and fixes the smallest structure that can
+carry it.
+
+\subsection{What the hash structure already proves, and the one thing it cannot}
+\label{sec:integrity-total}
+
+The protocol stacks four commitments, each one pinning the level below it. A
+\texttt{block\_id} commits to a block's bytes, including the memory type, schema
+version, and serialization named in its envelope (Section~\ref{sec:blocks}). A
+Merkle root commits to the exact set of block identifiers in a module
+(Section~\ref{sec:merkle}). A composition document makes that set
+\emph{resolvable} rather than merely verifiable, and is itself content-addressed
+(Section~\ref{sec:composition-doc}). A snapshot commits to one root per module,
+and to its parents by digest (Section~\ref{sec:snapshot}).
+
+Because the parents are named by digest, the chain of snapshots is itself
+hash-linked. Altering anything anywhere, a byte in a source, a block's
+membership in a module, an entry in an old snapshot, changes an identifier,
+which changes every value above and after it.
+
+Two consequences follow, and they point in opposite directions.
+
+\paragraph{Integrity is already total and transitive.}
+Any consumer, offline, with no configuration and no trust in anyone, can
+recompute the whole structure and confirm that a brain is exactly the brain
+those identifiers describe. Nothing needs to be added for that, and nothing in
+this section may be allowed to make it conditional.
+
+\paragraph{Authorship is unreachable from inside.}
+Every check above is a check of internal consistency, and internal consistency
+is cheap to manufacture. Anyone may assemble a brain containing whatever they
+like, compute its roots correctly, and publish a snapshot that passes every
+verification this document defines. The attack requires no cleverness: copy a
+brain, add a fabricated semantic block, recompute the affected roots, publish a
+consistent snapshot under someone else's name. The structure proves that a brain
+is coherent. It cannot distinguish a coherent brain from \emph{a particular
+party's} coherent brain.
+
+This is worse than a missing feature, because without it a guarantee stated
+elsewhere in this document does not hold. Principle~8 requires that every drop,
+cascade, and redaction be auditable, and
+Section~\ref{sec:erasure-verifiability} rests on provenance being the ledger
+that makes exclusion trustworthy. But provenance is made of blocks like
+everything else, and the actor it records is a \emph{declared identifier} rather
+than an authenticated identity. Whoever can write to a brain can forge its audit
+trail. A signature is what makes that actor field mean anything, which is why
+authenticity is specified here rather than left to a deployment.
+
+So what is missing is not more hashing. It is a single assertion, by a party,
+that the hashes cannot make on their own.
+
+\subsection{Where a signature attaches}
+\label{sec:sig-attach}
+
+The hash structure determines this almost completely, and the answer is
+unusually economical: \textbf{one signature over the snapshot covers
+everything}.
+
+Signing a snapshot commits to the module roots it names. Each root commits to
+that module's entire block set. Each block commits to its own bytes. The parent
+digests commit to the whole prior history, since changing any ancestor would
+change its digest and break the chain leading to the signed value. A conforming
+implementation MUST therefore attach signatures to snapshots, and MUST NOT
+require a signature over any other object to establish authorship.
+Signing the head is sufficient; signing every historical snapshot is OPTIONAL.
+
+A useful side effect: because the snapshot names each module's Merkle layout and
+each block envelope names its serialization, a signature transitively commits to
+\emph{how} the values were computed and not merely to the values. A consumer
+cannot be steered into recomputing under a different construction and finding a
+mismatch it has no way to interpret.
+
+\paragraph{Blocks MUST NOT carry the signer.}
+This follows from an argument this document already makes. Block identity must
+depend on the hashed bytes alone, or re-registering an identical source stops
+deduplicating (Section~\ref{sec:modules}). If a signer entered the hashed
+content, two parties ingesting the same PDF would produce different block
+identifiers and structural sharing would collapse. Blocks stay anonymous and
+immutable; snapshots carry attribution. Who acted is recorded in provenance and
+authenticated by the signature over the snapshot that committed the act.
+
+\paragraph{Signing module roots individually is not a substitute.}
+Five independent signatures are five independent claims, and nothing binds them
+into a single state. An attacker who holds five separately signed roots can
+combine today's semantic root with yesterday's canonical root, the one that
+still contained a source since dropped, and both signatures verify. The consumer
+installs a brain that never existed, holding evidence that was deliberately
+excluded, with every signature checking out. Only a signature over the document
+that \emph{combines} the roots prevents this, which is precisely what a snapshot
+is. A conforming implementation MUST NOT accept per-root signatures in place of
+a signature over a snapshot.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[node distance=6mm]
+  % integrity stack, bottom to top
+  \node[smallbox, text width=5.2cm] (bytes)
+    {\footnotesize block bytes: envelopes and named content};
+  \node[smallbox, above=6mm of bytes, text width=5.2cm] (ids)
+    {\footnotesize one \texttt{block\_id} per block};
+  \node[smallbox, above=6mm of ids, text width=5.2cm] (roots)
+    {\footnotesize one Merkle root per module\\[1pt]
+     \scriptsize resolvable through its composition document};
+  \node[accentbox, above=11mm of roots, text width=5.2cm] (snap)
+    {\textbf{snapshot}\\[1pt]
+     \scriptsize module roots $\cdot$ parents $\cdot$ trust root};
+  \draw[flow] (bytes) -- (ids);
+  \draw[flow] (ids) -- (roots);
+  \draw[flow] (roots) -- (snap);
+  \node[lbl, below=3mm of bytes, align=center]
+    {integrity: recomputed bottom-up,\\ no trust and no configuration required};
+
+  % authenticity column
+  \node[bluebox, right=20mm of snap, text width=4.0cm] (sig)
+    {\textbf{signature}\\[1pt] \scriptsize SSHSIG $\cdot$ detached $\cdot$ scoped};
+  \node[smallbox, below=13mm of sig, text width=4.0cm] (tr)
+    {\footnotesize \textbf{trust root}\\[1pt]
+     \scriptsize keys $\cdot$ scopes $\cdot$ chain positions};
+  \node[lbl, above=3mm of sig, align=center] {authenticity: checked top-down};
+  \draw[flowa] (sig.west) -- node[lbl, above, midway]{covers} (snap.east);
+  \draw[flowa] (tr) -- node[lbl, right, midway]{authorizes} (sig);
+  \draw[flow, dashed] (tr.west) -- node[lbl, below, sloped, midway]{carried inside}
+    (snap.south east);
+\end{tikzpicture}
+\caption{The two verifications and where they meet. The left column is
+recomputed from the bytes upward and needs no trust in anyone; the snapshot is
+the only place a signature attaches, because it is the only document that
+commits to every module root at once. The trust root travels inside the snapshot
+and therefore inside the signed bytes.}
+\label{fig:trust}
+\end{figure}
+
+\subsection{The signing mechanism}
+\label{sec:sshsig}
+
+Signatures are made with the SSH signature format, SSHSIG~\cite{sshsig}, the
+same mechanism Git uses when configured with \texttt{gpg.format=ssh}. There is
+no PKI and no certificate authority: contributors already hold SSH keys, and the
+forges already publish them. Ed25519~\cite{rfc8032} is the RECOMMENDED key type.
+
+A signature MUST be produced over the canonical bytes of the snapshot document
+(Section~\ref{sec:serialization}) under the namespace
+\texttt{boltzmann.snapshot.v1}. The namespace is not decoration: it is what
+prevents cross-protocol replay, so that a signature a contributor produced for a
+Git commit cannot be presented as a Boltzmann signature, and a later version of
+this document can introduce a new namespace without invalidating signatures made
+under this one. A conforming implementation MUST reject a signature made under
+any other namespace.
+
+\begin{callout}[title={Non-goal: key management}]
+The private key never enters the protocol. It stays where SSH keys already live:
+an agent, a hardware token, or a key-management service. The brain does not
+manage keys, for the same reason it does not embed a language model. A
+conforming implementation MUST NOT require a private key to be stored inside a
+brain, and MUST NOT define a format for one.
+\end{callout}
+
+\paragraph{Signatures are detached.}
+This is deliberately unlike Git, which embeds the signature inside the commit
+object and therefore changes the commit's identity when it is re-signed. Keeping
+signatures outside the document they cover buys three things that this
+architecture specifically needs:
+
+\begin{itemize}[leftmargin=1.4em]
+  \item Snapshot identity does not depend on whether, or by whom, a snapshot was
+  signed. Two parties who assembled the same knowledge still compute the same
+  snapshot digest.
+  \item A snapshot committed locally without a signature becomes signed at
+  publication \emph{without changing identity}, which matters because
+  Section~\ref{sec:local-state} already separates local state from publication.
+  \item Several signatures can cover one snapshot. This is the only way to
+  express a quorum, and it is the reason the choice is not merely stylistic.
+\end{itemize}
+
+A signature record names what it covers, under which namespace, by which key,
+and which scopes it claims:
+\begin{verbatim}
+{
+  "boltzmann": 1,
+  "snapshot":  "sha256:SNAPSHOT_DIGEST",
+  "namespace": "boltzmann.snapshot.v1",
+  "key":       "SHA256:5tS7wqf2K...",
+  "scopes":    ["commit"],
+  "signature": "-----BEGIN SSH SIGNATURE----- ..."
+}
+\end{verbatim}
+The \texttt{key} field is the signing key's SSH fingerprint, and it is an index
+rather than an authority: SSHSIG carries the public key inside the signature
+blob, so a verifier MUST check that the key inside the blob matches an
+authorized entry of the trust root, and MUST NOT trust the named fingerprint on
+its own. A record whose fingerprint and embedded key disagree MUST be rejected.
+
+\subsection{The trust root}
+\label{sec:trust-root}
+
+A signature answers \emph{who}. It does not answer \emph{and why should that
+matter}. Answering the second requires knowing which keys are authorized for
+this brain, and a consumer pulling from a mirror, a cache, or a tarball MUST be
+able to learn that without reaching a server, or the offline property of
+Section~\ref{sec:integrity-total} is lost the moment authenticity is introduced.
+
+The authorized keys therefore travel \emph{inside} the brain, as a \emph{trust
+root} carried in the snapshot document under the key \texttt{trust\_root}:
+\begin{verbatim}
+{
+  "boltzmann":     1,
+  "revision":      3,
+  "namespace":     "boltzmann.snapshot.v1",
+  "govern_quorum": 2,
+  "keys": [
+    { "key":              "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5...",
+      "scopes":           ["ingest", "commit", "drop:canonical", "govern"],
+      "since":            1 },
+    { "key":              "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5...",
+      "scopes":           ["ingest", "commit", "govern"],
+      "since":            1 },
+    { "key":              "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5...",
+      "scopes":           ["propose"],
+      "since":            2 },
+    { "key":              "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5...",
+      "scopes":           ["commit"],
+      "since":            1,
+      "retired_from":     3 },
+    { "key":              "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5...",
+      "scopes":           ["commit"],
+      "since":            1,
+      "compromised_from": "sha256:SNAPSHOT_S41" }
+  ]
+}
+\end{verbatim}
+Its identity is the digest of its canonical serialization, and that digest,
+rather than any individual key, is what a consumer pins
+(Section~\ref{sec:bootstrap}).
+
+\paragraph{Two forms of position, and why they are not interchangeable.}
+\texttt{since} and \texttt{retired\_from} name a \emph{revision number};
+\texttt{compromised\_from} names a \emph{snapshot digest}. The asymmetry is a
+construction constraint rather than a preference. A revision travels inside the
+snapshot that introduces it, so naming that snapshot by digest from within the
+trust root would be circular: the digest cannot be computed until the trust root
+is complete, and the trust root would not be complete until it named the digest.
+A revision number breaks the cycle and gives up nothing, because a revision
+corresponds to exactly one snapshot in the chain and the position is recoverable
+by walking parents. A \texttt{compromised\_from}, by contrast, always names a
+position that is already published, so its digest is known and no cycle arises. The finer granularity is necessary rather than incidental, since a revision
+may be in force across many snapshots and a key compromised in the middle of
+that span cannot be described by a revision boundary.
+
+One consequence is worth making normative, because it removes an obvious lie. A
+revision that admitted a key is itself in the chain, so \texttt{since} is
+\emph{confirmable} rather than merely asserted: a verifier walking revisions sees
+when a key first appeared. A trust root claiming a \texttt{since} earlier than
+the chain supports MUST be rejected, which is what stops a key that has just
+added itself from also claiming to have been authorized from the beginning.
+
+\paragraph{Why it is not a sixth module.}
+Modules are selectively installable (Section~\ref{sec:selective}), so a consumer
+who installed only the semantic module would not receive the very document
+needed to verify anything at all. The key list has to be present in every
+install, complete or partial, which places it at the brain level rather than
+among the modules. Carrying it in the snapshot, which is the brain-level
+document and the config blob of a published artifact, makes omitting it
+structurally impossible: there is no install that does not fetch the snapshot.
+As a second consequence the list falls inside the signed bytes, so a signature
+can never be evaluated against a key list the signer did not commit to.
+
+\paragraph{Scopes are derived from operations, not invented.}
+A scope names something the protocol already defines rather than a generic
+role, so that a consumer can check a claim mechanically
+(Table~\ref{tab:scopes}). This is what operationalizes Principle~2: ``dropping
+canonical evidence is allowed only under explicit policy'' today names a policy
+that a consumer has no way to confirm was honoured, and \texttt{drop:canonical}
+is what turns it into a checkable statement about who was permitted to do it.
+
+\begin{table}[htbp]
+\centering
+\caption{Signing scopes, and how a verifier decides which one a snapshot
+required. The requirement is computed from the difference between a snapshot and
+its first parent, never taken from what the signature claims.}
+\label{tab:scopes}
+\begin{tabularx}{\textwidth}{lYY}
+\toprule
+\textbf{Scope} & \textbf{Authorizes} & \textbf{Required when, relative to the first parent} \\
+\midrule
+\texttt{ingest}         & Preserving a source as canonical evidence. &
+  The canonical composition gained blocks. \\
+\texttt{commit}         & Adding derived blocks; ordinary drops, supersession,
+  and demotion. &
+  A non-canonical composition changed. \\
+\texttt{drop:canonical} & Excluding canonical evidence, with its cascade. &
+  The canonical composition lost blocks. \\
+\texttt{redact}         & Destroying bytes a retained root still names. &
+  Blocks became tombstoned. \\
+\texttt{govern}         & Revising the trust root. &
+  The trust root digest changed. \\
+\texttt{propose}        & Offering a snapshot for someone else's consideration. &
+  Never sufficient for a published head (Section~\ref{sec:contribution}). \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+An ordinary drop needs only \texttt{commit} while a canonical drop needs its own
+scope, and the asymmetry is the one Principle~2 already draws: an ordinary drop
+is recoverable by a later commit that re-adds the block, whereas excluding
+canonical evidence forfeits re-derivation from that source.
+
+A verifier MUST compute the required scope set from the difference between the
+snapshot and its first parent, or, for a snapshot that has no parents, from its
+difference against the empty brain (Section~\ref{sec:genesis}), and MUST reject a
+signature whose key does not hold every scope in that set, even if the signature
+claims fewer. The
+\texttt{scopes} field of a signature record is therefore a statement of intent
+that aids diagnosis, never the basis of the decision. This mirrors the rule of
+Section~\ref{sec:schema-versioning}: a version is a statement about what the
+payload uses, not a preference, and a scope is a statement about what the
+snapshot did, not a claim the signer gets to make.
+
+\begin{callout}[title=The trust root is not access control]
+Nothing can stop someone modifying a copy of a brain they already hold. The
+brain is data on their disk, and a field claiming otherwise would be honoured
+only by clients that chose to honour it. The trust root is a rule the
+\emph{reader} applies. It does not prevent writing; it prevents
+\emph{impersonation}. Preventing writes to a particular repository is the
+registry's job, and the two mechanisms defend against different attackers:
+registry permissions protect a repository, signatures protect an identity
+everywhere, including after the bytes have left that repository.
+\end{callout}
+
+\paragraph{Changing the trust root requires a quorum.}
+If the key list were just another document, whoever can sign could add
+themselves to it and the structure would authorize itself. A \emph{trust-root
+revision} is therefore a snapshot that has a first parent and whose
+\texttt{trust\_root} digest differs from that parent's, and it MUST satisfy two
+conditions: it MUST be covered by at
+least \texttt{govern\_quorum} valid signatures from distinct keys, and each of
+those keys MUST hold the \texttt{govern} scope in the trust root as it stood
+\emph{before} the change. Both halves matter, and evaluating against the
+previous revision is the half that is easy to lose. This is the root-rotation
+rule of The Update Framework~\cite{samuel2010tuf}, which is the studied answer
+to exactly this problem.
+
+A trust-root revision MUST NOT change anything else: its module roots MUST equal
+its first parent's. Governance is thereby a separate, individually auditable
+event in the chain rather than something folded into a commit, and a consumer can
+enumerate every change of authority a brain has ever undergone by walking the
+parents and comparing one digest.
+
+A \texttt{govern\_quorum} of~1 already stops a stranger, because a stranger holds
+no listed key at all. A quorum of~2 or more is what protects a brain against a
+single stolen legitimate key, which is the case worth designing for.
+
+\subsection{Retirement and revocation, without clocks}
+\label{sec:revocation}
+
+Removing a key and repudiating a key look similar and must behave oppositely.
+
+When someone leaves a project, everything they signed while authorized SHOULD
+remain valid. If removal were retroactive, a routine departure would invalidate
+every snapshot that person ever signed, and large stretches of history would
+stop verifying for an administrative reason.
+
+When a key is compromised, the opposite is required: everything it signed from
+the point of compromise onward MUST stop being trusted, even though it was
+signed while the key was still listed.
+
+Separating the two requires knowing \emph{when} a snapshot was signed, and the
+obvious approach fails. A timestamp inside a signature is written by the signer,
+so an attacker holding a stolen key can backdate freely; Git has the same hole.
+The \texttt{created\_at} field of a snapshot is no better, being written by
+whoever built it.
+
+The hash structure supplies the missing ordering. Snapshots are chained by
+digest, so a snapshot's position in the chain cannot be forged: inserting or
+moving one would change every descendant's parent digest, and those are already
+published. Validity is therefore expressed \emph{positionally} rather than
+temporally, and the question a verifier asks is:
+
+\begin{callout}
+Was this key authorized, with the scope this change required, in the trust root
+in force at this position in the chain?
+\end{callout}
+
+Because trust-root revisions are themselves snapshots in that chain, a verifier
+walks back from a snapshot to find the revision in force and answers the
+question with no clock involved. Two record forms express the two intents, and a
+conforming implementation MUST distinguish them:
+
+\begin{description}[leftmargin=2.2em, style=sameline, font=\normalfont\bfseries]
+  \item[\texttt{retired\_from}] The revision from which the key is no longer
+  authorized. Signatures at earlier positions remain valid. Retirement can never
+  invalidate a signature that was valid before it, which is what makes an
+  ordinary departure harmless.
+  \item[\texttt{compromised\_from}] A \emph{snapshot} from which the key's
+  signatures are no longer trusted. It MAY precede the revision that records it,
+  and it need not fall on a revision boundary, because compromise is discovered
+  after the fact and in the middle of a revision's span. This is the only
+  construct in this document that invalidates a previously valid signature, and a
+  verifier MUST report it as such rather than as an ordinary authorization
+  failure.
+\end{description}
+
+Stating that distinction plainly matters in operation: ``signed by a retired
+key, still valid'' and ``signed by a compromised key, no longer trusted'' are
+different facts about the same snapshot, and collapsing them either breaks
+history or hides an attack.
+
+This is the clearest case of the two layers composing. Hash-linking was
+introduced in Section~\ref{sec:snapshot} for versioning, and it turns out to
+supply exactly the unforgeable ordering that revocation needs.
+Certificate Transparency reaches for the same property through the same
+structure~\cite{rfc9162}.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[node distance=9mm]
+  \node[smallbox] (s4) {\texttt{S4}};
+  \node[smallbox, right=of s4] (s5) {\texttt{S5}};
+  \node[accentbox, right=of s5] (s6) {\texttt{S6}};
+  \node[smallbox, right=of s6] (s7) {\texttt{S7}};
+  \node[smallbox, right=of s7] (s8) {\texttt{S8}};
+  \draw[flow] (s5) -- (s4);
+  \draw[flow] (s6) -- (s5);
+  \draw[flow] (s7) -- (s6);
+  \draw[flow] (s8) -- (s7);
+  \node[lbl, above=2mm of s6, align=center]
+    {trust-root revision:\\ two \textsf{govern} signatures from v1};
+
+  % which trust root is in force
+  \draw[very thick, draw=gaussiadark]
+    ($(s4.south)+(-4mm,-8mm)$) -- ($(s5.south)+(4mm,-8mm)$)
+    node[lbl, midway, below=1mm]{trust root v1 in force};
+  \draw[very thick, draw=gaussiaccent]
+    ($(s6.south)+(-4mm,-8mm)$) -- ($(s8.south)+(4mm,-8mm)$)
+    node[lbl, midway, below=1mm]{trust root v2 in force};
+
+  % per-key validity
+  \draw[very thick, draw=gaussiadark]
+    ($(s4.south)+(-4mm,-22mm)$) -- ($(s5.south)+(4mm,-22mm)$)
+    node[lbl, right=3mm, align=left]
+      {key B, retired from S6:\\ signatures on S4 and S5 stay valid};
+  \draw[very thick, draw=gaussiadark]
+    ($(s4.south)+(-4mm,-33mm)$) -- ($(s4.south)+(4mm,-33mm)$)
+    node[lbl, right=3mm, align=left]
+      {key C, compromised from S5:\\ signatures from S5 onward withdrawn};
+\end{tikzpicture}
+\caption{Validity is positional. A trust-root revision is an ordinary snapshot
+in the chain that changes the key list and nothing else, so the revision in
+force at any position is found by walking parents. Retirement closes an interval
+without disturbing what came before it; a compromise record closes one at a
+position that may precede the revision recording it, and is the only construct
+that withdraws a signature already accepted.}
+\label{fig:governance}
+\end{figure}
+
+\subsection{Creating a brain: the genesis snapshot}
+\label{sec:genesis}
+
+Every rule stated so far is expressed against a snapshot's first parent, and one
+snapshot in every brain has none. The \texttt{init} operation
+(Table~\ref{tab:operations}) produces it, and because it is the origin of every
+authority the brain will ever have, its rules are stated here.
+
+A \emph{genesis snapshot} is a snapshot whose \texttt{parents} list is empty.
+A brain MUST have exactly one, and every other snapshot MUST be reachable from
+it by following parents. Its module compositions are usually empty, and an empty
+composition has a well-defined root (Section~\ref{sec:merkle}), so a brain with
+no knowledge in it is still a brain that verifies.
+
+Three rules follow, and each closes a gap the parent-relative phrasing would
+otherwise leave open.
+
+\paragraph{Its difference is taken against the empty brain.}
+A verifier computes the scopes a snapshot required from its difference with its
+first parent (Section~\ref{sec:trust-root}). For a genesis snapshot that
+difference is taken against a brain with no modules and no trust root, so every
+scope its content implies is required at once: \texttt{govern} because it
+establishes a trust root, and \texttt{ingest} or \texttt{commit} if it also
+carries blocks. A single self-signing key must therefore hold all of them, which
+is worth knowing before creating a brain with a narrowly scoped key.
+
+\paragraph{The quorum rule does not govern it, and this is the only exception.}
+A trust-root revision must be signed by keys authorized in the previous revision
+(Section~\ref{sec:trust-root}), and a genesis snapshot has no previous revision
+to draw on. It is therefore not a revision, and a verifier MUST NOT reject it for
+failing the quorum rule. This is the single point in the protocol where authority
+is asserted rather than derived, and Section~\ref{sec:bootstrap} is entirely
+about what to do with that fact.
+
+\paragraph{It SHOULD nonetheless satisfy its own declared quorum.}
+A genesis snapshot SHOULD carry at least \texttt{govern\_quorum} valid
+signatures from distinct keys listed in its own trust root. This proves nothing
+against an attacker, who can satisfy it just as easily, and it is not required
+for that reason. It is required for coherence: a brain that declares a quorum of
+two and whose founding act carried one signature is stating a rule it has already
+departed from, and an operator reading that history later cannot tell whether the
+second holder was ever real. An implementation MAY warn when a genesis snapshot
+carries fewer signatures than the quorum it declares.
+
+A genesis snapshot MAY be unsigned, and a brain whose genesis is unsigned is a
+brain with no authorship from the outset. That is the zero-configuration case of
+Section~\ref{sec:integrity-total}, and it remains fully verifiable for integrity.
+What it cannot later acquire is a signed history: signatures attach to snapshots,
+and the snapshots that were committed unsigned stay unsigned.
+
+\subsection{Bootstrap: the one thing that comes from outside}
+\label{sec:bootstrap}
+
+The quorum rule cannot apply to the first trust root, because there is no
+previous revision to draw a quorum from. The first list is self-signed, and read
+from inside the artifact it proves nothing: it asserts that a key is authorized,
+and the entity asserting it is that key. An attacker can construct an
+identical-looking object.
+
+This is not a defect specific to this design. Trust cannot be manufactured from
+inside a system; at some point something must arrive from elsewhere. What a
+design can do is reduce it to a single decision, taken once. Two mechanisms are
+specified, and an implementation MUST support both:
+
+\begin{description}[leftmargin=2.2em, style=sameline, font=\normalfont\bfseries]
+  \item[Trust on first use, then pin.] On first pull the consumer records the
+  digest of the trust root and MUST warn loudly, and by default refuse, on any
+  later change that does not follow the quorum rule of
+  Section~\ref{sec:trust-root}. This is the \texttt{known\_hosts} model of
+  SSH~\cite{rfc4251}. It does not prove the first contact was legitimate, but it
+  converts an ongoing exposure into a single moment of exposure.
+  \item[Pin out of band.] The digest is published through an independent
+  channel, a project site, a repository README, or DNS, and compared once by
+  hand. Compromising the distribution then requires compromising two
+  independent things.
+\end{description}
+
+Trust on first use is the RECOMMENDED default, with out-of-band pinning
+available to anyone who wants a stronger anchor. The residual limitation is
+stated rather than glossed: a consumer who has never seen a given brain has no
+basis on which to reject an impostor's, and no arrangement of data inside the
+artifact can change that. Every comparable system carries this problem; SSH
+lives with it, the web spends an industry on it, and transparency logs are
+another answer to it~\cite{rfc9162, newman2022sigstore}.
+
+Pinning is also what closes the last impersonation route, which is the subject of
+Section~\ref{sec:impersonation}.
+
+\subsection{How a signed brain is published}
+\label{sec:publish-signed}
+
+The trust root has a home already: it is inside the snapshot, and the snapshot
+is the config blob (Section~\ref{sec:distribution}). Signatures need a different
+answer, because they must be able to accumulate.
+
+A signature cannot simply be a layer. Adding a second signature to satisfy a
+quorum would change the manifest, and therefore the brain's digest, so a brain
+would change identity because someone countersigned it, with no knowledge having
+changed. That is precisely what detaching signatures was meant to avoid.
+
+The OCI Referrers API exists for this~\cite{oci_referrers}. A signature is
+published as a separate artifact whose \texttt{subject} is the brain's manifest,
+which is how signature attestations already
+work~\cite{newman2022sigstore, torres2019intoto}, so signatures accumulate
+\emph{around} an artifact without touching it. A conforming implementation MUST
+publish signatures this way, so that registry tooling can discover them without
+implementing this protocol.
+
+But referrers exist only inside an OCI registry, and a signature that lives only
+there does not survive a brain being exported to a tarball, a repository, or a
+disk, which the portability argument of Section~\ref{sec:composition} will not
+accept. So both are required. Signature records are part of the brain format and
+MUST travel with an exported brain, alongside the snapshot; publication
+additionally mirrors them into referrers. The two carry the same record, defined
+once in Section~\ref{sec:sshsig}.
+
+\begin{table}[htbp]
+\centering
+\caption{Where each authenticity object lives, and why it cannot live elsewhere.}
+\label{tab:authloc}
+\begin{tabularx}{\textwidth}{lYY}
+\toprule
+\textbf{Object} & \textbf{Where it lives} & \textbf{Why not elsewhere} \\
+\midrule
+Trust root  & Inside the snapshot document, which is the config blob of a
+  published brain. &
+  As a module or a layer it could be omitted by a selective install, leaving a
+  consumer with nothing to verify against. \\
+Signatures  & Beside the snapshot in an export; mirrored as OCI referrer
+  artifacts on publication. &
+  As a layer, countersigning would change the brain's digest; as referrers only,
+  they would not survive leaving a registry. \\
+Pinned digest & In consumer-side state, never in the artifact. &
+  A pin an artifact could supply would be a pin the attacker supplies. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{How verification runs}
+\label{sec:verification}
+
+A consumer performs two independent checks and MUST report them separately
+rather than as one boolean.
+
+\begin{enumerate}[leftmargin=1.6em]
+  \item \textbf{Integrity, bottom-up.} Recompute block identifiers from stored
+  bytes, recompute each module's root from its composition, and confirm the
+  snapshot names those roots. This requires nothing but the bytes, and its
+  result MUST NOT depend on any trust configuration.
+  \item \textbf{Authenticity, top-down.} Verify a signature over the snapshot's
+  canonical bytes under the protocol namespace; confirm the key inside the
+  signature is present in the trust root in force at that position in the chain;
+  confirm the key holds every scope the snapshot's difference from its first
+  parent required; confirm the trust root's digest matches the pin, if one
+  exists; and confirm that the key is neither retired nor compromised at that
+  position.
+\end{enumerate}
+
+Keeping them distinct matters in practice. A consumer with no trust anchor can
+still verify integrity completely, which is the zero-configuration case that
+must keep working. And a consumer that reports a single verified flag cannot
+express ``intact, and signed by an authorized key'' as distinct from ``intact,
+provenance unknown'', which is the distinction Section~\ref{sec:query} carries
+into the Evidence Bundle.
+
+\paragraph{Verification policy is configuration.}
+As with query planning and retention, the protocol fixes the checks and the
+reporting, not the deployment's appetite for risk. A consumer-side
+\emph{verification policy} states whether an unsigned brain may be installed
+(default: warn and permit for a first pull, refuse for a brain previously seen
+signed), how many valid signatures a head must carry (default: one), whether a
+\texttt{propose}-scoped head may be treated as the current state (default: no),
+and which trust-root digests are pinned. What is not configurable is whether the
+result is reported: an implementation MUST NOT present an unverified brain as
+verified, whatever the policy allowed it to install.
+
+\subsection{Three cases, worked through}
+\label{sec:cases}
+
+The rules above are short, and their consequences are not obvious until they are
+run against a situation. Three cases cover what a deployment actually meets:
+admitting an owner, a key admitting itself, and starting from nothing.
+
+In the first two, the brain is at revision~1 with keys $A$ and $B$, both holding
+\texttt{govern}, a \texttt{govern\_quorum} of~2, and a chain reaching
+\texttt{S7}. A consumer has pinned the digest of revision~1.
+
+\paragraph{Case 1: admitting a third owner.}
+$C$ generates a key pair and sends the \emph{public} half. The channel need not
+be confidential, since nothing secret is transmitted, but the recipients do need
+independent grounds to believe the key is $C$'s, which is an out-of-band question
+the protocol does not answer. A trust root at revision~2 is built listing $A$,
+$B$, and $C$; a snapshot \texttt{S8} is built naming \texttt{S7} as its parent,
+carrying that trust root, and leaving every module root equal to \texttt{S7}'s,
+because a revision changes nothing else (Section~\ref{sec:trust-root}). $A$ and
+$B$ each sign \texttt{S8}, producing two detached signatures over the same bytes.
+
+When $C$ later commits \texttt{S9} and signs it, a consumer verifying that
+snapshot resolves a chain of five questions, and the last one is where it
+terminates:
+
+\begin{enumerate}[leftmargin=1.6em]
+  \item Does the structure recompute? Integrity, requiring no trust
+  (Section~\ref{sec:integrity-total}).
+  \item Does $C$'s signature verify over \texttt{S9}'s canonical bytes?
+  \item Which trust root is in force at \texttt{S9}? The one its first parent
+  names, which is revision~2, and $C$ is listed there.
+  \item Which scope did \texttt{S9} require? Its difference from \texttt{S8}
+  shows a non-canonical composition that gained blocks, so \texttt{commit},
+  which $C$ holds.
+  \item Why is revision~2 itself trustworthy? Because \texttt{S8} introduced it
+  carrying two signatures from $A$ and $B$, who held \texttt{govern} in
+  revision~1, whose digest matches the pin.
+\end{enumerate}
+
+Nothing in this requires $C$ to do anything unusual: $C$ commits and signs
+normally. What makes those signatures carry weight is that an earlier snapshot in
+the same chain authorized the key, signed by parties who were already authorized.
+The authorization travels inside the brain, so it reaches every consumer without
+anyone fetching anything extra.
+
+\paragraph{Case 2: a key admitting itself.}
+$C$ installs the brain, which is public and requires no permission, edits the
+trust root to include their own key, and builds \texttt{S8$'$} naming \texttt{S7}
+as its parent. $C$ signs it with their own key.
+
+The first two checks pass, and it is worth being explicit that they do. The
+structure recomputes, because $C$ recomputed it correctly. The signature
+verifies, because $C$ genuinely produced it. \emph{Integrity does not detect this
+attack}, which is the whole reason Section~\ref{sec:authenticity} exists.
+
+The third and fourth checks fail:
+
+\begin{itemize}[leftmargin=1.4em]
+  \item The trust root in force at \texttt{S8$'$} is the one its parent
+  \texttt{S7} names, which is revision~1, holding only $A$ and $B$. $C$'s key is
+  absent: \emph{unauthorized key}.
+  \item \texttt{S8$'$} changes the trust root relative to its first parent, so it
+  is a revision, and requires two signatures from keys holding \texttt{govern} in
+  revision~1. It carries none: \emph{quorum failure}.
+\end{itemize}
+
+The comparison with Case~1 is the point of stating both, and it is sharper than
+it first appears (Figure~\ref{fig:cases}):
+
+\begin{callout}
+The key list in Case~1 and the key list in Case~2 may be \textbf{byte-identical}.
+The same three keys, the same scopes, the same serialization. What distinguishes
+them is not the list. It is \emph{who signed the snapshot that introduced it}.
+\end{callout}
+
+An attacker can write any key list they like. What they cannot write are its
+approvals, because producing one requires a private key they do not hold. Two
+further consequences follow. Rejection propagates forward: a later snapshot
+naming \texttt{S8$'$} as its parent draws its trust root from a snapshot already
+rejected, so the whole subtree falls with it. And this case fails \emph{without
+any pin at all}, provided the consumer holds the chain, because the verifier is
+checking an internal transition rule rather than comparing against an external
+anchor. The chain the attacker must ship contains the evidence that the attacker's
+own change of authority was never approved.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[node distance=6mm and 11mm]
+  % legitimate
+  \node[smallbox] (l7) {\texttt{S7}};
+  \node[accentbox, right=of l7, text width=3.3cm] (l8)
+    {\texttt{S8}\\[1pt] \scriptsize trust root $\{A, B, C\}$};
+  \draw[flow] (l8) -- (l7);
+  \node[bluebox, right=of l8, text width=4.3cm] (l8s)
+    {\footnotesize signed by $A$ and $B$\\[1pt]
+     \scriptsize both held \textsf{govern} in revision 1};
+  \draw[flowa] (l8s) -- (l8);
+  \node[lbl, below=2mm of l8s] {accepted};
+  \node[lbl, left=3mm of l7] {case 1};
+
+  % malicious
+  \node[smallbox, below=17mm of l7] (m7) {\texttt{S7}};
+  \node[accentbox, right=of m7, text width=3.3cm] (m8)
+    {\texttt{S8$'$}\\[1pt] \scriptsize trust root $\{A, B, C\}$};
+  \draw[flow] (m8) -- (m7);
+  \node[bluebox, right=of m8, text width=4.3cm] (m8s)
+    {\footnotesize signed by $C$ alone\\[1pt]
+     \scriptsize $C$ held nothing in revision 1};
+  \draw[flowa] (m8s) -- (m8);
+  \node[lbl, below=2mm of m8s] {quorum failure};
+  \node[lbl, left=3mm of m7] {case 2};
+\end{tikzpicture}
+\caption{The same key list, admitted two ways. Both snapshots recompute
+correctly and both carry a signature that verifies, so integrity separates them
+not at all. What separates them is whether the snapshot introducing the new list
+carries approvals from keys that were already authorized, which an attacker
+cannot produce without the corresponding private keys.}
+\label{fig:cases}
+\end{figure}
+
+\paragraph{Case 3: starting from nothing.}
+There is no prior state, so nothing can be derived and the first authority is
+declared. $A$ and $B$ generate their key pairs; a trust root at revision~1 lists
+both with a \texttt{govern\_quorum} of~2; a genesis snapshot is built with an
+empty \texttt{parents} list, that trust root, and empty module compositions; and
+both keys sign it, satisfying the quorum the trust root itself declares
+(Section~\ref{sec:genesis}).
+
+Read from inside the artifact, this proves nothing, and the asymmetry with the
+first two cases is the useful thing to notice. There, what decided the outcome
+was a rule a verifier could check against material it already held. Here there is
+no such material: the trust root asserts that a key is authorized, and the entity
+asserting it is that key. Any party can construct an indistinguishable object.
+
+What gives a genesis meaning is therefore the step that happens outside it: the
+digest of revision~1 is published through an independent channel and pinned by
+consumers on first contact (Section~\ref{sec:bootstrap}). From that moment the
+derivable rules take over, and Cases~1 and~2 behave as described. Stated
+compactly: \emph{a genesis is not validated, it is anchored}, and it is the only
+object in this protocol of which that is true.
+
+\subsection{Which impersonation routes remain closed}
+\label{sec:impersonation}
+
+The design is worth judging against the attacks it is meant to stop, including
+the two it does not (Table~\ref{tab:attacks}). The mechanism that closes most of
+them is the same one throughout: a signature is a value only the holder of a
+private key can produce, and a trust-root revision is not a claim about the key
+list but a document that must carry the signatures of keys authorized in the
+previous list. An attacker can write any key list they like; they cannot write
+its approvals.
+
+\begin{table}[htbp]
+\centering
+\caption{Impersonation routes against a signed brain. The last two rows are
+honest limitations rather than defences.}
+\label{tab:attacks}
+\begin{tabularx}{\textwidth}{YY}
+\toprule
+\textbf{Route} & \textbf{Outcome} \\
+\midrule
+Add blocks, recompute roots, sign with the attacker's own key. &
+  Rejected: the key is absent from the trust root in force. \\
+Add blocks and strip the signatures. &
+  Rejected for any consumer that has seen this brain signed; reported as
+  unsigned rather than as valid. \\
+Add blocks and ship an attacker-authored trust root listing their key. &
+  Rejected: the trust root's digest does not match the pinned one. \\
+Add the attacker's key to the existing trust root. &
+  Rejected: the revision requires \texttt{govern} signatures from keys
+  authorized in the previous revision, and the attacker holds none of their
+  private keys. \\
+Reuse a legitimate signature over modified content. &
+  Rejected: the signature covers the snapshot's canonical bytes, and modified
+  content is a different snapshot. \\
+Recombine legitimately signed module roots into a state that never existed. &
+  Rejected: signatures cover snapshots, not roots, and no signed snapshot names
+  that combination. \\
+Backdate a signature made with a stolen key. &
+  Rejected: validity is positional, so a \texttt{compromised\_from} record
+  withdraws trust by chain position and a written timestamp decides nothing. \\
+\midrule
+Serve an older, legitimately signed snapshot indefinitely. &
+  \emph{Not prevented.} Withholding is a freshness problem, not an authenticity
+  one (Section~\ref{sec:security}). \\
+Present a fabricated brain to a consumer who has never seen the genuine one. &
+  \emph{Not prevented.} First contact is irreducible
+  (Section~\ref{sec:bootstrap}). \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Two deployments, one format}
+\label{sec:deployments}
+
+Nothing above changes with the size of a deployment; only its configuration
+does. Two cases are worth stating because they are the common ones and because
+they exercise opposite ends of the same structure.
+
+\paragraph{A brain with a single author.}
+One key, holding every scope, with \texttt{govern\_quorum} of~1. The trust root
+has one entry, signing is one command at publication, and the value obtained is
+not access control but tamper-evidence: a brain republished by anyone else fails
+verification for every consumer who has pinned this one. The single author does
+not need a second key to benefit, and adding a second later is an ordinary
+trust-root revision signed by the first.
+
+\paragraph{Public read, restricted write.}
+Anyone may install the brain; a few may publish it. Reading is a registry
+concern and requires nothing from this section, and the trust root governs whose
+authorship a consumer \emph{accepts} rather than who is physically able to
+write. Maintainers hold \texttt{commit}, a subset holds \texttt{govern},
+canonical drops are restricted to keys holding \texttt{drop:canonical}, and
+outside contributors hold \texttt{propose}, which is enough for their snapshots
+to be attributable and not enough for one to be mistaken for the published
+state. Section~\ref{sec:divergence} takes that arrangement and defines what
+happens when a contribution actually arrives.
+
+\subsection{What this deliberately does not solve}
+
+With the above in place, a hostile registry cannot fabricate state: everything
+verifies offline against the pinned trust root. It can still \emph{withhold},
+serving an older, legitimately signed snapshot indefinitely while concealing
+that newer ones exist. Signing does not address this, and claiming otherwise
+would be misleading. It is treated as a stated limitation in
+Section~\ref{sec:security} and named again in
+Section~\ref{sec:conclusion}.
 
 % ===========================================================================
 \section{The Boltzmann Protocol}
@@ -1424,36 +2536,54 @@ portable data, and any client that speaks the protocol can read and extend it.
 The protocol includes no LLM of its own; it governs structure, identity,
 validation, indices, snapshots, and distribution.
 
-The operations divide into four \emph{roles}. The division is not decorative: a
+The operations divide into five \emph{roles}. The division is not decorative: a
 role is the unit of conformance (Section~\ref{sec:conformance}) and the unit of
 capability. A brain published for consumption needs only the reading role
-implemented on the consumer's side, and a client that never writes need not
-implement validation at all. Table~\ref{tab:operations} states the surface.
+implemented on the consumer's side; a client that never writes need not implement
+validation at all; and a consumer that recomputes integrity while holding no
+trust anchor need not implement authenticity, which is exactly the
+zero-configuration case Section~\ref{sec:integrity-total} guarantees.
+Table~\ref{tab:operations} states the surface.
 
-\begin{table}[htb]
+\begin{table}[htbp]
 \centering
 \caption{Protocol operations by role. Every operation is defined over an
 installed snapshot; none of them requires a running service.}
 \label{tab:operations}
+\small
 \begin{tabularx}{\textwidth}{llY}
 \toprule
 \textbf{Role} & \textbf{Operation} & \textbf{What it does} \\
 \midrule
-\multirow{7}{*}{Reader}
+\multirow{9}{*}{Reader}
   & \texttt{snapshot}      & Report the current snapshot and its installed modules. \\
   & \texttt{root\_of}      & Report the Merkle root of one installed module. \\
   & \texttt{open\_index}   & Open an index of a named kind over a module. \\
   & \texttt{resolve}       & Resolve a \texttt{block\_id} to its bytes, verifying the hash. \\
   & \texttt{prove}         & Produce an inclusion proof of a block in a module. \\
   & \texttt{resolvability} & Report which blocks are resolvable and which are tombstoned. \\
+  & \texttt{verify}        & Recompute the whole hash structure of an installed snapshot (Section~\ref{sec:verification}). \\
+  & \texttt{browse}        & Walk an axis of the catalog and list what is filed under a class (Section~\ref{sec:catalog}). \\
   & \texttt{search}        & Answer a query with an Evidence Bundle (Section~\ref{sec:query}). \\
 \midrule
-\multirow{5}{*}{Writer}
+\multirow{5}{*}{Authenticity}
+  & \texttt{sign}          & Produce a detached signature over a snapshot under the protocol namespace. \\
+  & \texttt{authenticate}  & Check signatures against the trust root in force at a snapshot's position. \\
+  & \texttt{pin}           & Record a trust root digest as the anchor for this brain. \\
+  & \texttt{rotate}        & Commit a trust-root revision, under the quorum rule. \\
+  & \texttt{revoke}        & Record that a key is retired, or compromised from a chain position. \\
+\midrule
+\multirow{10}{*}{Writer}
+  & \texttt{init}          & Create a brain: a genesis snapshot with no parents and its first trust root (Section~\ref{sec:genesis}). \\
   & \texttt{register}      & Preserve a source as canonical evidence, with provenance. \\
   & \texttt{replace}       & Register a new edition and record supersession. \\
   & \texttt{define\_task}  & Emit a processing task for an external model. \\
   & \texttt{validate}      & Judge candidate blocks against the protocol's checks. \\
+  & \texttt{classify}      & File canonical blocks under classes on a declared axis (Section~\ref{sec:catalog}). \\
   & \texttt{commit}        & Incorporate validated candidates and advance the snapshot. \\
+  & \texttt{merge}         & Reconcile two histories into a snapshot naming both as parents. \\
+  & \texttt{rebase}        & Replay a history onto another, minting new snapshot identities. \\
+  & \texttt{squash}        & Collapse a run of snapshots into one, preserving provenance. \\
 \midrule
 \multirow{6}{*}{Retention}
   & \texttt{drop}          & Exclude blocks from a module, cascading through provenance. \\
@@ -1463,10 +2593,11 @@ installed snapshot; none of them requires a running service.}
   & \texttt{prune}         & Reclaim blocks no retained root still references. \\
   & \texttt{redact}        & Destroy bytes a retained root still names, under policy. \\
 \midrule
-\multirow{3}{*}{Distribution}
+\multirow{4}{*}{Distribution}
   & \texttt{pack}          & Materialize the current snapshot as an OCI Artifact locally. \\
   & \texttt{push}          & Publish, refusing to overwrite a diverged remote (Section~\ref{sec:local-state}). \\
   & \texttt{pull}          & Install an artifact, optionally only some modules. \\
+  & \texttt{fetch}         & Retrieve a remote history without moving the local pointer (Section~\ref{sec:contribution}). \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -1494,24 +2625,43 @@ Section~\ref{sec:erasure-verifiability} requires, and one that cannot tell an
 uninstalled module from an empty one will silently answer queries from a subset
 of the brain it thinks it has.
 
-\begin{table}[htb]
+\begin{table}[htbp]
 \centering
-\caption{Failure conditions a conforming implementation must distinguish.}
+\caption{Failure conditions a conforming implementation must distinguish,
+grouped by what a caller can do about them.}
 \label{tab:failures}
 \begin{tabularx}{\textwidth}{lY}
 \toprule
 \textbf{Condition} & \textbf{Meaning} \\
 \midrule
-Unknown schema        & The block's schema version is not implemented here. \\
-Block not found       & The identity is not held by this brain. \\
-Block tombstoned      & The identity is known; the bytes were destroyed by redaction. \\
-Integrity failure     & Stored bytes do not hash to the identity they claim. \\
-Inclusion proof failure & A membership proof does not reconstruct the root. \\
-Module not installed  & The snapshot does not name this module. \\
-Append-only violation & A drop was attempted on the episodic module. \\
-Membership failure    & A returned block is not in the installed snapshot. \\
-Policy refusal        & The retention policy does not authorize this removal. \\
-Divergence            & The remote is not an ancestor of the local snapshot. \\
+\multicolumn{2}{@{}l}{\emph{Identity and integrity}} \\
+\quad Unknown schema        & The block's schema version is not implemented here. \\
+\quad Block not found       & The identity is not held by this brain. \\
+\quad Block tombstoned      & The identity is known; the bytes were destroyed by redaction. \\
+\quad Integrity failure     & Stored bytes do not hash to the identity they claim. \\
+\quad Inclusion proof failure & A membership proof does not reconstruct the root. \\
+\quad Membership failure    & A returned block is not in the installed snapshot. \\
+\midrule
+\multicolumn{2}{@{}l}{\emph{Scope of the installed brain}} \\
+\quad Module not installed  & The snapshot does not name this module. \\
+\quad Stale index           & A travelling index is bound to a root other than the installed one. \\
+\quad Append-only violation & A drop was attempted on the episodic module. \\
+\quad Policy refusal        & The retention policy does not authorize this removal. \\
+\midrule
+\multicolumn{2}{@{}l}{\emph{Authenticity} (Section~\ref{sec:authenticity})} \\
+\quad Unsigned brain        & A signature was required and none is present. \\
+\quad Signature invalid     & The signature does not verify over the snapshot's canonical bytes, or was made under another namespace. \\
+\quad Unauthorized key      & The signing key is absent from the trust root in force at this position. \\
+\quad Insufficient scope    & The key is authorized, but not for the change this snapshot made. \\
+\quad Retired key           & The key was authorized once and not at this position; earlier signatures by it stand. \\
+\quad Compromised key       & The key's signatures are withdrawn from a recorded position onward. \\
+\quad Quorum failure        & A trust-root revision lacks the required \texttt{govern} signatures from the previous revision. \\
+\quad Trust root mismatch   & The trust root does not match the pinned digest. \\
+\midrule
+\multicolumn{2}{@{}l}{\emph{Reconciliation} (Section~\ref{sec:divergence})} \\
+\quad Divergence            & The remote is not an ancestor of the local snapshot. \\
+\quad No common ancestor    & Two histories share no ancestor, so no three-way merge is defined. \\
+\quad Governance conflict   & The histories being reconciled carry different trust roots. \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -1656,6 +2806,7 @@ document it governs so that a receiver never has to infer it:
 (Section~\ref{sec:query}).
 
 \subsection{Validation and commit}
+\label{sec:validation}
 
 Results from the LLM do not enter automatically. Validation is the point at
 which a \emph{proposal} becomes a \emph{block}: before it, a candidate is
@@ -1667,9 +2818,9 @@ Every candidate receives exactly one of four verdicts
 (Table~\ref{tab:verdicts}), and only \texttt{VALIDATED} candidates MAY be
 committed. A verdict MUST be accompanied by the issues that produced it, each
 naming the check that fired and, where applicable, the field within the payload,
-so that a rejection is actionable rather than an opaque refusal.
+so that a rejection is actionable.
 
-\begin{table}[htb]
+\begin{table}[htbp]
 \centering
 \caption{The four validation verdicts.}
 \label{tab:verdicts}
@@ -1765,8 +2916,7 @@ data rather than prose.}
 \subsection{Query planning and guarantees}
 
 Step three above hides a query planner. By Principle~7 a query is declarative:
-the caller expresses intent (a query, optional filters over memory type,
-subject, or recency, and optional hints such as a retrieval mode or a result
+the caller expresses intent (a query, optional filters over memory type, class, or recency, and optional hints such as a retrieval mode or a result
 limit) and never names a physical index. Choosing which indices to use, and how
 to combine them, is the responsibility of a conforming implementation, in the
 same way that the SQL standard defines a query language and its semantics while
@@ -1799,7 +2949,7 @@ snapshot, and the advice a planner may follow or ignore.
   "text": "how do I compute Fourier coefficients",
   "filters": {
     "memory_types":        ["semantic", "procedural"],
-    "subject":             "signals",
+    "classes":             ["sha256:CLASS_FOURIER"],
     "since":               "2026-05-01T00:00:00Z",
     "until":               null,
     "tags":                ["exam"],
@@ -1810,8 +2960,7 @@ snapshot, and the advice a planner may follow or ignore.
 }
 \end{verbatim}
 The \texttt{text} MAY be empty. ``The episodes of last May'' is a complete
-request with no terms in it, and refusing it would make recency and subject
-filters unusable on their own.
+request with no terms in it, and refusing it would make recency and class filters unusable on their own.
 
 Filters are conditions and MUST be honored. Hints are advice: the retrieval
 mode, the result limit, and the expansion depth express what the caller
@@ -1823,7 +2972,9 @@ identities only), \texttt{lexical} (match terms as written), \texttt{semantic}
 outward from the strongest hits along declared relations). A mode names a
 strategy, never an engine, which is what keeps Principle~7 intact.
 
-The \texttt{memory\_types} filter is the mechanism behind R2: it is what keeps
+The \texttt{classes} filter names class blocks (Section~\ref{sec:catalog}), which is what makes
+``the past exams on Fourier'' a condition the protocol can honour instead of free text a
+responder may read as it likes. The \texttt{memory\_types} filter is the mechanism behind R2: it is what keeps
 ``what happened in the class of May 14'' from competing with ``the definition of
 a Fourier series'' in a single similarity ranking. The
 \texttt{include\_superseded} filter reflects that superseded blocks stay in the
@@ -1841,17 +2992,26 @@ matching blocks and everything needed to audit them:
     "memory_type": "semantic",
     "content":     { ... the block's payload ... },
     "score":       "0.87",
-    "sources":     [{"block_id": "sha256:PDF123", "locator": "p.147"}],
+    "sources":     [{"block_id": "sha256:PDF123",
+                     "locator":  "p.147",
+                     "citation": "verified"}],
     "verified":     true,
     "resolvable":   true,
     "superseded_by": null
   }],
   "verified_against": { "semantic": "sha256:SEMANTIC_ROOT_V7" },
+  "authorship": {
+    "state":      "authorized",
+    "snapshot":   "sha256:SNAPSHOT",
+    "key":        "SHA256:5tS7wqf2K...",
+    "trust_root": "sha256:TRUST_ROOT_R3",
+    "pinned":     true
+  },
   "truncated": false
 }
 \end{verbatim}
 
-Four fields carry guarantees stated elsewhere in this document, and a
+Six fields carry guarantees stated elsewhere in this document, and a
 conforming implementation MUST populate all of them.
 
 \texttt{verified} asserts that both the block's hash and its membership in the
@@ -1868,6 +3028,31 @@ requirement is met at query time.
 
 \texttt{superseded\_by} names a newer block that takes precedence, so a caller
 that asked to include superseded blocks can tell which ones they are.
+
+\texttt{citation} states what became of each cited source, and it exists because
+verification does not otherwise survive selective installation. A bundle's
+sources point at canonical blocks, and under selective installation the canonical
+module may not be installed at all (Section~\ref{sec:selective}), so a consumer
+can receive a fully verified semantic block citing evidence it has no way to
+check. Since R1 makes canonical evidence the root of auditability, the bundle
+MUST say which of three situations holds: \texttt{verified}, the cited block is
+present in the installed canonical composition; \texttt{uninstalled}, the
+canonical module is not installed here and the citation could not be checked; or
+\texttt{missing}, the canonical module \emph{is} installed and the citation is
+not in it, which is a violation of R1 and MUST be reported rather than smoothed
+over. Collapsing the last two would hide a broken brain behind an incomplete
+install.
+
+\texttt{authorship} reports the second of the two checks of
+Section~\ref{sec:verification}, separately from \texttt{verified}, which reports
+the first. Its \texttt{state} is \texttt{authorized} when a signature over the
+installed snapshot verified under a key holding the scopes that snapshot's change
+required, \texttt{unsigned} when the brain carries no signature at all, and
+\texttt{unauthorized} when a signature was present and failed any of those
+conditions. A conforming implementation MUST NOT fold authorship into
+\texttt{verified}: a bundle that collapses the two cannot express ``intact, and
+signed by an authorized key'' as distinct from ``intact, provenance unknown'',
+and a caller has no way to recover the difference afterwards.
 
 \texttt{score} is a decimal \emph{string}, for the same reason payloads forbid
 floats (Section~\ref{sec:serialization}): a number whose textual form varies
@@ -1931,8 +3116,7 @@ than the ordinary cleanup path.
 The primary removal operation is \emph{drop}. It applies to the
 \textbf{canonical}, \textbf{semantic}, \textbf{procedural}, and
 \textbf{provenance} modules. The \textbf{episodic} module is exempt: episodes
-are a chronological record of what happened, so corrections append new episodes
-or supersession relations rather than rewriting the past
+are a chronological record of what happened, so corrections append new episodes or supersession relations
 (Section~\ref{sec:modules}).
 
 A drop does not mutate blocks in place. Blocks remain content-addressed and
@@ -1986,6 +3170,24 @@ new candidates under a later snapshot. The wrong source never appears in the
 current composition, and neither do interpretations that depended only on it.
 \end{callout}
 
+\paragraph{The cascade does not weigh evidence, and cannot.}
+The cascade excludes every derived block that cited the dropped evidence, without
+distinguishing a block supported by one source from a block supported by three.
+The obvious refinement, dropping a derived block only when it loses \emph{all} of
+its evidence, is not implementable here, and the reason is worth recording
+because the refinement looks reasonable until it is attempted. Citations live in
+the payload, and therefore inside \texttt{block\_id}
+(Section~\ref{sec:blocks}). A semantic block citing three sources that loses one
+cannot ``keep the other two'': a block with two citations is a different block,
+with a different identity. A block whose citation set no longer holds cannot
+stay, whatever fraction of that set survived.
+
+What remains open is narrower than it first appears. Rebuilding such a block
+against its surviving evidence currently requires a full round trip through the
+external model, even though the surviving evidence has not changed. Whether the
+protocol should offer a cheaper deterministic path for that case is stated as
+open in Section~\ref{sec:conclusion}.
+
 \paragraph{Batch invalidation.}
 Because provenance records the producer of each derived block (model, pipeline,
 ingestion batch, or actor), a drop may be stated over a \emph{set}: everything
@@ -2022,7 +3224,22 @@ the block was never referenced. Redaction is the path for destroying retained
 canonical bytes under law or safety policy. It is not the cleanup path for a
 wrongly ingested source or for wrong semantic knowledge: those are dropped.
 
-\begin{table}[htb]
+\paragraph{Append-only is not an exemption from erasure.}
+The episodic module is exempt from drop, and the law-and-safety pressure named
+earlier in this section can require personal data to disappear. Those two facts
+meet in an uncomfortable place, and this document says so plainly: for personal data inside an episode, redaction is the
+\emph{only} available path, so the mechanism framed here as rare and exceptional
+is the ordinary one for the module most likely to contain personal data. Three
+consequences are normative. A retention policy MUST be able to declare episodic
+content redactable (Table~\ref{tab:policy}). An implementation MUST NOT read the
+append-only rule as an exemption from an erasure obligation, since the two
+constrain different things: append-only governs how a record is \emph{corrected},
+not whether its bytes may be destroyed. And a deployment recording episodes about
+identifiable people SHOULD decide in advance which episodic content is
+redactable, rather than meet the question for the first time when a request
+arrives.
+
+\begin{table}[htbp]
 \centering
 \caption{Removal mechanisms and their guarantees.}
 \label{tab:forgetting}
@@ -2114,7 +3331,7 @@ deployment decides is stated in a \emph{retention policy}
 (Table~\ref{tab:policy}), which an implementation MUST consult before performing
 any removal and MUST refuse to act against.
 
-\begin{table}[htb]
+\begin{table}[htbp]
 \centering
 \caption{The retention policy: what a deployment decides, and the defaults this
 version specifies.}
@@ -2128,6 +3345,7 @@ Canonical drop      & Whether canonical evidence may be excluded at all. & forbi
 Cascade review      & How many dependents a cascade may drop before the commit requires review. & no threshold \\
 Retained roots      & How many recent snapshots stay reachable, on top of tagged releases. & 10 \\
 Redactable content  & Which media types may have their bytes destroyed. & none \\
+Episodic redaction  & Whether episodic content may be redacted, which is the only erasure path an append-only module has. & forbidden \\
 Allowed mechanisms  & Which removal mechanisms are permitted at all. & all the module allows \\
 \bottomrule
 \end{tabularx}
@@ -2135,12 +3353,14 @@ Allowed mechanisms  & Which removal mechanisms are permitted at all. & all the m
 
 Three of these defaults are deliberately restrictive. Canonical drops are
 forbidden by default because excluding evidence forfeits re-derivation from that
-source, which Principle~2 makes a privileged act. Redaction is forbidden by
-default because it is the mechanism for law and safety, not the cleanup path,
-and a deployment that has not decided which content is redactable has not
-decided that it is. The episodic module can never appear among the droppable
-modules: it is append-only by protocol, not by policy, and no configuration may
-make it otherwise.
+source, which Principle~2 makes a privileged act. Both redaction settings are
+forbidden by default because redaction is the mechanism for law and safety, not
+the cleanup path, and a deployment that has not decided which content is
+redactable has not decided that it is; the episodic setting is separate precisely
+because it is the module where the question is most likely to arise and least
+likely to have been considered. The episodic module can never appear among the
+droppable modules: it is append-only by protocol, not by policy, and no
+configuration may make it otherwise.
 
 \begin{callout}[title=One setting that does not exist]
 Whether removals are recorded is not configurable. Every drop, cascade,
@@ -2149,6 +3369,381 @@ no policy document, however constructed, may turn that off. Auditability is the
 property that makes exclusion trustworthy, so exposing it as a knob would make
 every other guarantee in this section conditional on a setting.
 \end{callout}
+
+% ===========================================================================
+\section{Divergence and Reconciliation}
+\label{sec:divergence}
+
+Section~\ref{sec:local-state} requires an implementation to detect that two
+brains advanced from a common ancestor and to refuse to overwrite. Refusing is
+safe and incomplete: it leaves reconciliation to hand-editing, and it means a
+partial install can never be published back over the tag it came from. This
+section defines the reconciliation the refusal was standing in for.
+
+\subsection{One structural change}
+\label{sec:parents-list}
+
+A snapshot names its predecessors in \texttt{parents}, a list
+(Section~\ref{sec:snapshot}). That is the whole structural change: a field goes
+from scalar to list, and no new document is introduced. A linear history is the
+ordinary case and carries one entry; a root snapshot carries none; a
+reconciliation carries two or more.
+
+Order is significant in exactly one way. The \emph{first parent} is the history
+the reconciliation was performed onto, and every rule in this document that
+speaks of ``the parent'' means the first one: the scope a signature must hold
+(Section~\ref{sec:trust-root}), the trust root in force
+(Section~\ref{sec:revocation}), and the difference a consumer reads as the
+change this snapshot made. A conforming implementation MUST treat the remaining
+parents as merged-in history and MUST NOT derive any authorization from them.
+
+\subsection{Why the structural part is nearly free}
+\label{sec:set-merge}
+
+This is a genuine advantage over version control rather than a coincidence. Git
+merges lines of text; here what is merged is a set of immutable,
+content-addressed blocks. Nothing is ever ``the same block, slightly modified'':
+modifying a block yields a different identity (Section~\ref{sec:blocks}). A
+textual conflict is therefore not representable, and reconciliation of a single
+module is set arithmetic over identifiers, which converges regardless of the
+order the sides are combined in~\cite{shapiro2011crdt}.
+
+What makes it three-way rather than two-way is the common ancestor, and this is
+the part that cannot be skipped. Without it, a block present in one composition
+and absent from the other is ambiguous between ``they added it'' and ``I dropped
+it'', and those demand opposite outcomes. A conforming implementation MUST
+identify a common ancestor of the snapshots being reconciled, and MUST refuse
+with a distinguishable failure when the two histories share none
+(Table~\ref{tab:failures}).
+
+For each module, with $B$ the ancestor's composition and $X$, $Y$ the two
+compositions being reconciled, the result is
+\begin{equation}
+  M = \bigl(B \cup X \cup Y\bigr) \setminus
+      \bigl((B \setminus X) \cup (B \setminus Y)\bigr),
+  \label{eq:merge}
+\end{equation}
+which is to say: everything either side added is kept, and everything either
+side removed stays removed.
+
+\paragraph{Removal wins, and that is a feature.}
+Equation~\ref{eq:merge} gives precedence to exclusion, so a block one side
+dropped does not return because the other side still held it. A related property
+follows from content addressing and is worth recording: dropped evidence cannot
+be smuggled back in by re-ingesting it. Re-registering the same source yields the
+same identifier (Section~\ref{sec:modules}), so the reconciliation recognizes it
+as something this brain removed rather than as a new contribution, with no
+special rule required. Deliberately re-admitting a block that was dropped
+remains possible and remains an explicit commit, which is where a decision of
+that kind belongs.
+
+\paragraph{The result is a candidate, not a commit.}
+Equation~\ref{eq:merge} is applied per module and is individually correct in
+each, which is precisely why it is not sufficient. The invariants this
+architecture rests on run \emph{between} modules, and a set operation never
+crosses that boundary. Section~\ref{sec:semantic-conflicts} is about what
+crosses it.
+
+\subsection{Merge, rebase, and squash are recording strategies}
+\label{sec:strategies}
+
+This inverts the intuition anyone brings from version control, and it is worth
+spelling out. In Git the three strategies differ both in how the result is
+computed and in how history is recorded: a rebase replays patches, and can
+therefore land on a tree a merge would not have produced. Here a snapshot is a
+complete statement of composition rather than a patch, so there is nothing to
+replay sequentially, and all three produce the same set of blocks. What differs
+is only the lineage recorded, and therefore who remains on record as the author
+(Table~\ref{tab:strategies}).
+
+\begin{table}[htbp]
+\centering
+\caption{The three strategies produce identical compositions and different
+histories. Once snapshots are signed, the difference is attribution rather than
+tidiness.}
+\label{tab:strategies}
+\begin{tabularx}{\textwidth}{lYccc}
+\toprule
+\textbf{Strategy} & \textbf{Lineage recorded} & \textbf{Same blocks} &
+\textbf{Their snapshots kept} & \textbf{Their signature survives} \\
+\midrule
+Merge  & Two or more parents.                            & Yes & Yes & Yes \\
+Rebase & One parent: mine.                               & Yes & No  & No  \\
+Squash & One parent, their snapshots collapsed into one. & Yes & No  & No  \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+In Git, choosing among these is a question of tidiness. Once snapshots are
+signed (Section~\ref{sec:authenticity}), it is a question of attribution: rebase
+and squash mint new snapshot identities, so a contributor's signature no longer
+covers anything in the resulting history and their work ends up signed by
+whoever performed the operation. That may be exactly what is wanted for a small
+reviewed contribution, but an implementation MUST report it as a consequence of
+the choice rather than let it happen silently. A conforming implementation MUST
+NOT present a rebased or squashed contribution as bearing the contributor's
+signature.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[node distance=6mm and 7mm]
+  % --- merge
+  \node[smallbox] (m6) {\scriptsize\texttt{S6}};
+  \node[smallbox, right=of m6] (m7) {\scriptsize\texttt{S7}};
+  \node[smallbox, above right=4mm and 7mm of m7] (m8) {\scriptsize\texttt{S8$'$}};
+  \node[accentbox, right=16mm of m7] (m9) {\scriptsize\texttt{S9}};
+  \draw[flow] (m7) -- (m6);
+  \draw[flow] (m8) -- (m7);
+  \draw[flow] (m9) -- (m7);
+  \draw[flowa] (m9) -- (m8);
+  \node[lbl, below=6mm of m7, align=center] {\textbf{merge}\\ two parents};
+
+  % --- rebase
+  \node[smallbox, right=34mm of m7] (r6) {\scriptsize\texttt{S6}};
+  \node[smallbox, right=of r6] (r7) {\scriptsize\texttt{S7}};
+  \node[accentbox, right=of r7] (r9) {\scriptsize\texttt{S9}};
+  \node[smallbox, above=6mm of r9, draw=gaussiadark!35, text=gaussiadark!55]
+    (r8) {\scriptsize\texttt{S8$'$}};
+  \draw[flow] (r7) -- (r6);
+  \draw[flow] (r9) -- (r7);
+  \draw[draw=gaussiadark!35, dashed] (r8) -- (r9);
+  \node[lbl, below=6mm of r7, align=center] {\textbf{rebase}\\ one parent};
+
+  % --- squash
+  \node[smallbox, right=30mm of r9] (q6) {\scriptsize\texttt{S6}};
+  \node[smallbox, right=of q6] (q7) {\scriptsize\texttt{S7}};
+  \node[accentbox, right=of q7] (q9) {\scriptsize\texttt{S9}};
+  \node[smallbox, above=6mm of q9, draw=gaussiadark!35, text=gaussiadark!55]
+    (q8) {\scriptsize\texttt{S8$'$..S8$'''$}};
+  \draw[flow] (q7) -- (q6);
+  \draw[flow] (q9) -- (q7);
+  \draw[draw=gaussiadark!35, dashed] (q8) -- (q9);
+  \node[lbl, below=6mm of q7, align=center] {\textbf{squash}\\ one parent};
+\end{tikzpicture}
+\caption{All three land the same blocks in \texttt{S9}. Only merge keeps the
+contributed snapshot in the history, and therefore only merge keeps the
+contributor's signature covering something. Greyed nodes are outside the
+resulting history.}
+\label{fig:lineage}
+\end{figure}
+
+\paragraph{Rebase and lineage rewrite are the same machinery.}
+Replaying immutable blocks onto a new base is deterministic, but it changes
+snapshot identities, which invalidates signatures over them and any root already
+published. That is exactly the property of the lineage rewrite of
+Section~\ref{sec:forgetting}, and unifying them is a simplification: both are legitimate only before publication, under version
+control's own rule about rewriting public history.
+
+\paragraph{Squash collapses snapshots, not provenance.}
+Squash is more useful here than in version control, because an ingestion session
+mints many intermediate snapshots nobody cares about individually. It MUST
+therefore be defined precisely or it breaks Principle~8: a squash compacts root
+history and MUST preserve every provenance record the collapsed snapshots
+produced. An implementation that discarded provenance while collapsing snapshots
+would be destroying the audit ledger to tidy a chain.
+
+\subsection{The conflicts that are real}
+\label{sec:semantic-conflicts}
+
+Because no textual conflict is representable, the conflicts that remain are
+semantic, and there are few of them (Table~\ref{tab:conflicts}). One deserves
+walking through, because it is the case that proves reconciliation cannot be
+purely structural.
+
+Branch~A drops canonical block $C$. Branch~B adds a semantic block derived from
+$C$. Each module's set arithmetic is individually correct: the drop is respected
+in the canonical composition, the addition is respected in the semantic one. The
+result nonetheless violates R1, because a derived block now cites evidence that
+is not in the composition. The invariant that broke lives \emph{between} modules,
+and Equation~\ref{eq:merge} never crosses that boundary. That single case is
+enough to establish that the reconciliation rule MUST be provenance-aware.
+
+\begin{table}[htbp]
+\centering
+\caption{Semantic conflict classes and how each is resolved.}
+\label{tab:conflicts}
+\begin{tabularx}{\textwidth}{YY}
+\toprule
+\textbf{Conflict} & \textbf{Resolution} \\
+\midrule
+One side drops canonical evidence the other side derived from. &
+  Structurally invisible, semantically fatal. The derived block is rejected by
+  the evidence check, exactly as the canonical cascade rejects a dependent
+  (Section~\ref{sec:drop}). \\
+Both sides add blocks that contradict each other. &
+  Not structurally detectable at all. Surfaces as
+  \texttt{CONTRADICTED} when the result is re-validated, with the conflicting
+  blocks named. \\
+Both sides supersede the same block with different successors. &
+  Both successors are admissible blocks and both supersession edges are
+  recorded; the conflict is a precedence question and MUST yield
+  \texttt{PENDING\_REVIEW} rather than a silent winner. \\
+The two sides carry different trust roots. &
+  MUST NOT be reconciled automatically. Unioning two key lists grants the union
+  of both sides' permissions, which defeats the quorum rule outright
+  (Section~\ref{sec:trust-root}). The reconciliation MUST be refused and
+  resolved as an explicit governance act. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\paragraph{The rule.}
+The structural reconciliation of Equation~\ref{eq:merge} is automatic, and its
+result MUST then be validated as if it were an ingestion
+(Section~\ref{sec:ingestion}). Every question these conflicts raise, does this
+evidence exist, does this contradict what is already held, is this relation
+admissible, does the payload satisfy a registered schema, is already asked on the
+ingestion path, so no new machinery is introduced. Conflicts surface as
+candidates in \texttt{PENDING\_REVIEW} or \texttt{CONTRADICTED} rather than as an
+unresolvable state. Put differently:
+
+\begin{callout}
+A conflict in this protocol is a validation failure, not a differencing failure.
+\end{callout}
+
+Only blocks that emerge \texttt{VALIDATED} enter the reconciled composition, and
+the reconciliation MUST NOT be committed while any candidate is still
+\texttt{PENDING\_REVIEW}. The verdicts are the report a maintainer acts on, and
+they name which parts of a contribution fit before anything is decided.
+
+\subsection{Missing evidence has two causes, and the diagnosis matters}
+\label{sec:missing-evidence}
+
+When a reconciled block cites evidence absent from the composition, the block is
+rejected either way: it cannot enter, for the same reason the canonical cascade
+does not repair its dependents. But \emph{why} the evidence is absent determines
+what the contributor should be told, and provenance already holds the answer,
+because it is the removal ledger (Section~\ref{sec:modules}).
+
+\begin{description}[leftmargin=2.2em, style=sameline, font=\normalfont\bfseries]
+  \item[A removal record exists.] The evidence was dropped deliberately. The
+  contribution rests on something this brain judged wrong, and resending it would
+  re-import exactly what was excluded. The contributor SHOULD be told not to
+  resend.
+  \item[No record, and the identity is unknown.] The evidence was never here: the
+  contribution shipped a derived block without its canonical source. The work may
+  be perfectly good and the transfer was incomplete. The contributor SHOULD be
+  told to resend it whole.
+\end{description}
+
+Same verdict, opposite advice. A conforming implementation MUST distinguish the
+two, because collapsing them discards legitimate work over a packaging mistake
+and offers no way to tell which happened.
+
+\paragraph{Rejection is not final.}
+If a replacement canonical source is later registered, the \texttt{rederive}
+operation of Section~\ref{sec:ingestion} can rebuild what was lost against it.
+That is a separate, deliberate step taken afterwards, and it MUST NOT be folded
+into the reconciliation: a reconciliation that quietly re-derived rejected blocks
+against substituted evidence would be inventing knowledge in the middle of an
+operation the operator believes to be mechanical.
+
+\subsection{Contribution from outside}
+\label{sec:contribution}
+
+The deployment that motivates all of this is public read with restricted write
+(Section~\ref{sec:deployments}). What follows is how an external contribution
+works end to end (Figure~\ref{fig:contribution}). Nothing in it requires a new
+kind of object, and the first five steps require nothing this document had not
+already specified.
+
+\begin{enumerate}[leftmargin=1.6em]
+  \item \textbf{The contributor extends the brain.} They install it at snapshot
+  \texttt{S7}, no permission needed because the repository is public, ingest
+  sources locally, and commit. Their snapshot names \texttt{S7} as its parent.
+  They sign it with their own key, holding \texttt{propose}, and publish it to a
+  repository they control. A contribution is therefore a signed snapshot, in
+  another repository, whose parent belongs to the maintainer's history. The
+  parent pointer is the entire link, exactly as a branch is in version control.
+  There is no proposal object and no pending state.
+  \item \textbf{They notify the maintainer.} Out of band: an issue, a message, a
+  URL. This protocol defines no notification mechanism, in the same way version
+  control defines no pull requests. The snapshot is the protocol-level artifact;
+  the workflow around it belongs to the forge.
+  \item \textbf{The maintainer fetches it.} Because everything is
+  content-addressed, the transfer is only the delta: the contributor's brain
+  shares every block reachable from \texttt{S7} with the maintainer's, byte for
+  byte, so only genuinely new blocks and the new snapshot move. A contribution of
+  forty blocks transfers forty blocks, not a brain.
+  \item \textbf{Nothing has changed yet.} The maintainer holds two histories
+  locally while the published brain is untouched. \texttt{fetch} is defined to
+  retrieve a remote history without moving the local pointer, which is the
+  operation this step needs and the reason it is separate from \texttt{pull}.
+  \item \textbf{The contribution is judged mechanically, before any decision.}
+  This is where the model departs usefully from version control. Reviewing a
+  pull request means reading a diff; here the incoming blocks are candidates, and
+  the validation of Section~\ref{sec:validation} applies unchanged. Every
+  incoming block emerges with a verdict, so the maintainer learns which parts of
+  a contribution fit before deciding anything, rather than inferring it by
+  reading.
+  \item \textbf{The maintainer incorporates it} under one of the strategies of
+  Section~\ref{sec:strategies}, re-validating the result as
+  Section~\ref{sec:semantic-conflicts} requires, and signs the resulting
+  snapshot with a key holding the scopes that snapshot's change requires.
+\end{enumerate}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[node distance=8mm and 10mm]
+  \node[smallbox] (s5) {\texttt{S5}};
+  \node[smallbox, right=of s5] (s6) {\texttt{S6}};
+  \node[smallbox, right=of s6] (s7) {\texttt{S7}};
+  \node[accentbox, right=36mm of s7] (s9) {\texttt{S9}};
+  \draw[flow] (s6) -- (s5);
+  \draw[flow] (s7) -- (s6);
+  \draw[flow] (s9) -- node[lbl, above, midway]{first parent} (s7);
+  \node[lbl, left=2mm of s5] {\dots};
+  \node[lbl, above=2mm of s6, align=center] {maintainer's history,\\ signed \textsf{commit}};
+
+  \coordinate (mid) at ($(s7)!0.5!(s9)$);
+  \node[bluebox, below=18mm of mid, text width=2.9cm, align=center] (s8)
+    {\texttt{S8$'$}\\ \scriptsize signed \textsf{propose}};
+  \draw[flow] (s8.north west) -- node[lbl, left, pos=0.4]{parent} (s7.south);
+  \draw[flowa] (s9.south) -- node[lbl, right, pos=0.6]{merged parent} (s8.north east);
+  \node[lbl, below=2mm of s8, align=center] {contributor's repository};
+
+  \node[smallbox, right=8mm of s9, text width=3.4cm] (val)
+    {\footnotesize incoming blocks validated\\[1pt] \scriptsize
+     \texttt{VALIDATED} $\cdot$ \texttt{CONTRADICTED}\\
+     \texttt{PENDING\_REVIEW} $\cdot$ \texttt{REJECTED}};
+  \draw[flow, dashed] (s8.east) to[bend right=20]
+    node[lbl, below right, pos=0.35]{as candidates} (val.south);
+\end{tikzpicture}
+\caption{An external contribution needs no new object. The contributor's
+snapshot names a snapshot of the maintainer's history as its parent, which is the
+whole link; the maintainer fetches only the delta, validates the incoming blocks
+as candidates, and records the outcome as a reconciliation whose first parent is
+their own history.}
+\label{fig:contribution}
+\end{figure}
+
+\paragraph{Why \texttt{propose} is a scope and not a convention.}
+A contributor's snapshot is a legitimately signed Boltzmann snapshot in every
+respect, which is the problem: without a scope distinguishing it, a consumer who
+pulled from the contributor's repository, or from a mirror that indexed it, would
+have no basis for treating it as anything other than the brain's current state. A
+key holding only \texttt{propose} produces snapshots that are attributable,
+verifiable, and explicitly not the published head. A conforming implementation
+MUST refuse to treat a \texttt{propose}-signed snapshot as a brain's current
+state unless a verification policy explicitly permits it
+(Section~\ref{sec:verification}).
+
+\subsection{Publishing back from a partial install}
+\label{sec:partial-publish}
+
+Section~\ref{sec:local-state} states that a partial install cannot be published
+back over the tag it came from, because doing so would drop the modules that were
+never fetched. Reconciliation resolves this rather than working around it.
+
+A snapshot produced by a partial install names roots only for the modules that
+install holds. Publishing it back MUST be expressed as a reconciliation with the
+remote head, in which the modules the publisher does not hold take their roots
+from the remote unchanged, and the modules it does hold are reconciled by
+Equation~\ref{eq:merge}. The published snapshot then names every module the
+remote named, no module regresses, and the \texttt{source-snapshot} annotation of
+Section~\ref{sec:distribution} continues to record the full snapshot a projection
+was taken from. A conforming implementation MUST NOT publish a partial snapshot
+over a tag naming modules that snapshot omits.
 
 % ===========================================================================
 \section{Knowledge Lifecycle}
@@ -2171,8 +3766,14 @@ The full lifecycle ties the previous sections together:
   vectors, and graph are updated.
   \item \textbf{Versioning:} the Merkle roots of the affected modules change.
   \item \textbf{Publication:} OCI distributes only the modified physical modules.
+  \item \textbf{Attribution:} the published snapshot is signed, and a consumer
+  verifies integrity and authorship as two separate results
+  (Section~\ref{sec:authenticity}).
   \item \textbf{Query:} the LLM obtains Evidence Bundles and transforms them
   for the user.
+  \item \textbf{Contribution:} an outside party extends the brain in a
+  repository of their own, and the maintainer fetches, validates, and reconciles
+  the result (Section~\ref{sec:divergence}).
   \item \textbf{Reconsolidation:} new evidence or corrections generate later
   candidates and snapshots.
   \item \textbf{Forgetting and retention:} non-episodic modules drop wrong or
@@ -2188,6 +3789,177 @@ cognitive processing: the protocol organizes and governs; the external LLM
 interprets and contextualizes.
 
 % ===========================================================================
+\section{Security Considerations}
+\label{sec:security}
+
+A document claiming to be a standard owes a plain statement of what it
+guarantees, what it does not, and where the burden sits. Much of the burden here
+lands on the consumer, and saying so is the point rather than an admission.
+Table~\ref{tab:threats} summarizes; the subsections that follow treat the cases
+where the architecture itself creates the exposure.
+
+\begin{table}[htbp]
+\centering
+\caption{What the protocol guarantees against each capability, and what it does
+not.}
+\label{tab:threats}
+\begin{tabularx}{\textwidth}{YYY}
+\toprule
+\textbf{An adversary who can} & \textbf{Is prevented from} & \textbf{Is not prevented from} \\
+\midrule
+Modify bytes in transit or at rest &
+  Passing any verification: every identifier is recomputed from the bytes
+  (Section~\ref{sec:integrity-total}). &
+  Denying service by corrupting what a consumer needs. \\
+Publish a fabricated brain under someone else's name &
+  Being accepted by any consumer holding a pin
+  (Section~\ref{sec:impersonation}). &
+  Being accepted on first contact by a consumer with no pin
+  (Section~\ref{sec:bootstrap}). \\
+Control the registry &
+  Fabricating state: signatures and roots verify offline. &
+  Withholding newer snapshots and serving a stale signed one
+  (Section~\ref{sec:freshness}). \\
+Steal one authorized private key &
+  Revising the trust root, when the quorum exceeds one
+  (Section~\ref{sec:trust-root}). &
+  Signing snapshots within that key's scopes until a compromise record is
+  published (Section~\ref{sec:revocation}). \\
+Get content into an ingested source &
+  Having it committed without a verdict, or without provenance naming its
+  producer (Section~\ref{sec:validation}). &
+  Having it faithfully preserved, retrieved, and replayed into a model
+  (Section~\ref{sec:injection}). \\
+Read a published brain &
+  Learning anything the publisher did not put in it. &
+  Recovering approximations of dropped content from a stale travelling index
+  (Section~\ref{sec:indices-derived}). \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Untrusted content reaching a model is structural, not incidental}
+\label{sec:injection}
+
+This architecture routes untrusted content into a language model by design.
+Canonical evidence is preserved verbatim because Principle~2 requires it,
+retrieved because that is what the query path is for, and handed to an external
+model that acts on it. Indirect prompt injection~\cite{greshake2023injection} is
+therefore a structural property of the design rather than an integration detail:
+a poisoned source that survives ingestion is replayed into every model that later
+queries the brain, and it arrives carrying the protocol's own verification stamp
+attesting that it is authentic evidence. Retrieval-augmented systems have been
+shown to be corruptible by a very small number of injected
+passages~\cite{zou2024poisonedrag}, and content addressing does nothing to
+prevent it: a poisoned block is faithfully preserved, correctly identified, and
+honestly attributed.
+
+The consequence must be stated precisely, because the alternative is a false
+sense of safety:
+
+\begin{callout}[title={What \texttt{verified} means, and what it does not}]
+The \texttt{verified} field of an Evidence Bundle asserts that a block is
+authentically the knowledge that was committed to this brain, at this snapshot,
+by an identified key. It asserts nothing whatsoever about whether the content is
+true, or safe to act on. A conforming implementation MUST NOT describe
+verification as sanitization, and MUST NOT present canonical evidence to a model
+as trusted instruction.
+\end{callout}
+
+Where the burden sits follows from the boundary of
+Section~\ref{sec:protocol}. The protocol governs what is stored and returns data
+rather than prose; the caller decides what to do with it. A caller that hands
+retrieved evidence to a model SHOULD treat it as untrusted input, separate it
+from instructions, and constrain what the model is permitted to do as a result of
+reading it. The protocol contributes what it can contribute honestly: every
+retrieved block names its canonical source, so a suspect claim can be traced to
+the bytes that produced it, and every derived block names its producer, so a
+poisoned batch can be excluded as a set.
+
+\subsection{Poisoning in bulk, and its remedy}
+
+Because provenance records the producer of every derived block at the granularity
+of a model, pipeline, ingestion batch, or actor,
+\texttt{drop\_by\_producer} (Section~\ref{sec:drop}) can exclude everything a
+compromised producer made in one operation. This is remediation and not
+prevention, and it should be described as such: it shortens the window during
+which poisoned knowledge is served, and it does not stop the poisoning. Its value
+is that the window is bounded by a query over provenance rather than by an
+audit of a corpus.
+
+Signatures narrow the window further in one specific way. Because a snapshot's
+author is authenticated, a poisoned commit is attributable to a key rather than to
+a declared name, and \texttt{compromised\_from} withdraws every snapshot that key
+signed from a chosen chain position (Section~\ref{sec:revocation}). Attribution is
+the precondition for that response, which is the operational argument for
+Section~\ref{sec:authenticity} beyond impersonation.
+
+\subsection{Freshness: the limitation signing does not remove}
+\label{sec:freshness}
+
+Everything verifies offline against a pinned trust root, so a hostile or merely
+stale registry cannot fabricate state. It can still \emph{withhold}: serve an
+older, legitimately signed snapshot indefinitely, while concealing that newer
+ones exist. Every signature verifies, every root recomputes, the trust root
+matches the pin, and the consumer is nonetheless reading a brain that was
+current months ago, possibly one from before a drop that removed knowledge for
+legal reasons.
+
+Nothing in this version detects that, and a consumer MUST NOT infer freshness
+from a successful verification. The two known answers are expiring metadata,
+where a signed statement asserts a validity window and its absence is itself a
+signal, as in The Update Framework's timestamp role~\cite{samuel2010tuf}, and an
+append-only transparency log, where a consumer can check that the snapshot it was
+served is the latest one the log has witnessed~\cite{rfc9162}. Both require a
+party outside the artifact, which is why neither is specified here: the offline property of
+Section~\ref{sec:integrity-total} is the one thing this design is unwilling to
+trade, and both answers weaken it for consumers that cannot reach the extra
+party. Section~\ref{sec:conclusion} states this as open.
+
+\subsection{Erasure does not propagate}
+
+The limitation of Section~\ref{sec:erasure-verifiability} is worth restating in
+security terms. A redaction destroys bytes in the brain that performs it. It does
+not reach copies already pulled elsewhere. The protocol can publish the fact of a
+removal, and a conforming implementation must report which blocks are
+tombstoned, but a distributed brain can only signal destruction, not guarantee
+it. Any deployment whose obligations require guaranteed destruction must not
+distribute the content whose destruction it may later have to guarantee, and no
+protocol feature substitutes for that decision.
+
+\subsection{Hash agility}
+
+Every digest in this version is SHA-256, and every digest is written with its
+algorithm as a prefix, so a future version can introduce another without
+ambiguity. What such a transition~\cite{nist2019transitions} cannot be is an
+in-place upgrade. A \texttt{block\_id} is knowledge identity, and a Merkle root
+is version identity, so recomputing them under a different algorithm produces a
+different brain: every identifier changes, structural sharing with existing
+copies is lost, and signatures over old snapshots continue to cover the old
+values only. A migration is therefore a re-identification of a whole brain,
+carried out deliberately and recorded in provenance, and a conforming
+implementation MUST NOT mix algorithms within one snapshot or treat identifiers
+under different algorithms as comparable.
+
+\subsection{What a consumer is responsible for}
+
+The properties in this document hold for a consumer that does the following, and
+an implementation SHOULD make each of them the default rather than an option:
+
+\begin{itemize}[leftmargin=1.4em]
+  \item Recompute integrity; never accept a publisher's assertion of it
+  (Section~\ref{sec:verification}).
+  \item Pin a trust root on first contact, and refuse a change that does not
+  satisfy the quorum rule (Section~\ref{sec:bootstrap}).
+  \item Report integrity and authenticity separately, and never collapse
+  ``intact'' into ``authentic'' (Section~\ref{sec:verification}).
+  \item Treat retrieved evidence as untrusted input to a model
+  (Section~\ref{sec:injection}).
+  \item Treat a successful verification as saying nothing about freshness
+  (Section~\ref{sec:freshness}).
+\end{itemize}
+
+% ===========================================================================
 \section{Conformance}
 \label{sec:conformance}
 
@@ -2200,15 +3972,25 @@ demonstrate, and how.
 Conformance is claimed per role, not for the protocol as a whole
 (Table~\ref{tab:operations}). An implementation MAY claim the \textbf{reader}
 role alone, which is the common case for a consumer that installs a published
-brain and queries it. Claiming \textbf{writer}, \textbf{retention}, or
-\textbf{distribution} requires the reader role as well, since each of them is
-defined in terms of reading a snapshot before changing it. An implementation
-that claims all four is \emph{fully conforming}.
+brain and queries it. Claiming \textbf{authenticity}, \textbf{writer},
+\textbf{retention}, or \textbf{distribution} requires the reader role as well,
+since each of them is defined in terms of reading a snapshot before changing it
+or attesting to it. An implementation that claims all five is \emph{fully
+conforming}.
+
+Authenticity is claimable separately for a reason that is easy to mistake for a
+weakness. A consumer that recomputes integrity while holding no trust anchor is
+not a degraded client: it is the zero-configuration case
+Section~\ref{sec:integrity-total} guarantees, and requiring signature
+verification for a reader to be conforming would make offline integrity
+conditional on configuration the protocol promises it does not need. What no
+implementation may do is claim an authenticity it did not check
+(Section~\ref{sec:verification}).
 
 Partial claims are not a weakness to be tolerated but the mechanism that makes
 selective installation meaningful: a client that only reads never needs
 validation, contradiction detection, or a packing format, and requiring it to
-implement them in order to be conforming would push implementers toward
+implement them to be conforming would push implementers toward
 claiming nothing at all.
 
 \subsection{Golden vectors}
@@ -2229,6 +4011,15 @@ vectors, covering the four places where a divergence would be invisible:
   Section~\ref{sec:merkle} produces, including the empty set and odd-sized
   trees, where a wrong split is otherwise easy to miss.
   \item \textbf{Inclusion proofs}: proofs and the roots they must reconstruct.
+  \item \textbf{Signatures}: snapshots, published test key pairs, namespaces,
+  and the verdict a verifier MUST reach, including a signature valid under the
+  wrong namespace, a key authorized at one chain position and retired at another,
+  a key with a \texttt{compromised\_from} record, and a trust-root revision that
+  fails the quorum rule (Section~\ref{sec:authenticity}).
+  \item \textbf{Reconciliation}: an ancestor composition and two branch
+  compositions, with the set Equation~\ref{eq:merge} must produce, including the
+  case where one side dropped what the other retained
+  (Section~\ref{sec:set-merge}).
 \end{itemize}
 
 These vectors MUST be plain data, readable without executing any implementation
@@ -2265,55 +4056,87 @@ Beyond the architecture, this version fixes the interoperability surface: the
 block envelope and its canonical serialization, the Merkle construction and its
 layout identifier, the composition and snapshot documents, the schema-versioning
 rules, the distribution encoding, the ingestion and query contracts, and a
-conformance kit anchored in golden vectors. What is left open divides into
-questions an implementation may answer for itself and questions the protocol
-still owes an answer to. The first kind, consolidation and contradiction
-strategies, ranking and fusion, index engines, and pack sizing, are open by
-design: they vary without breaking exchange. The second kind are gaps, and there
-are two.
+conformance kit anchored in golden vectors.
 
-\paragraph{Authenticity.}
-Every guarantee in this document is a guarantee of \emph{integrity}. A snapshot
-proves that a set of blocks is intact and internally consistent; it proves
-nothing about who assembled it. Anyone may copy a brain, add a fabricated block,
-recompute the affected roots, and publish a perfectly consistent snapshot under
-someone else's name, and every verification described here would pass. The
-provenance module records an actor for each operation, but that record is a
-declared identifier rather than an authenticated identity, which means the audit
-ledger that Principle~8 relies on is only as trustworthy as whoever could write
-to it. Closing this requires signatures over snapshots, a way for a consumer to
-learn which keys are authorized to sign a given brain that does not depend on
-reaching a server, and rules for rotating and revoking those keys without
-invalidating history. It also raises a question this design cannot inherit from
-its transport: a signature that travels only as a registry
-attestation~\cite{oci_referrers} does not survive a brain leaving OCI, which the
-portability thesis of Section~\ref{sec:composition} would not accept.
+It then addresses the two gaps an earlier version named as open, and the
+treatment of each turned out to be shorter than expected because the existing
+structure already did most of the work.
 
-\paragraph{Divergence.}
-A snapshot names one parent, so history is a chain rather than a graph and a
-merge is not representable. An implementation can detect that two brains
-advanced from a common ancestor, and Section~\ref{sec:local-state} requires that
-it refuse to overwrite when they have, but refusing is a safe behavior rather
-than a complete one. Reconciliation looks tractable, and in one respect easier
-here than in version control, because a module composition is a set of immutable
-content-addressed blocks and a three-way merge over sets is largely automatic:
-no textual conflict is even representable. The hard cases are semantic rather
-than structural. A block derived from evidence that the other branch dropped
-would satisfy set union while violating R1, and two branches may add blocks that
-contradict each other, which no structural rule detects. Both suggest that a
-merge should be re-validated as if it were an ingestion, so that conflicts
-surface as candidates pending review rather than as an unresolvable state, but
-this document does not specify that.
+\paragraph{Authenticity was a question of where, not of how much.}
+Every guarantee the hash structure makes is a guarantee of integrity, and
+integrity is already total: any consumer, offline and unconfigured, can confirm
+that a brain is exactly the brain its identifiers describe. What no amount of
+hashing can supply is authorship, because internal consistency is cheap to
+manufacture. Section~\ref{sec:authenticity} adds the one assertion the hashes
+cannot make, and adds it in one place: a snapshot already commits to every module
+root and, through its parents, to the entire prior history, so a single detached
+signature over it covers everything and nothing else needs signing. The keys
+authorized to produce such a signature travel inside the brain so that
+verification stays offline, their scopes are the protocol's own operations rather
+than invented roles, revising the list requires a quorum of keys authorized in
+the previous revision, and validity is decided by position in the hash-linked
+chain rather than by a timestamp a signer could forge. The one thing that cannot
+come from inside is trust at first contact, and that limitation is stated plainly.
 
-Three smaller questions remain within retention: which decay function governs
-demotion in the episodic module, how a revocation should propagate through
-registries and caches so that destruction of retained bytes becomes more than a
-local guarantee, and how a consumer detects that it is being served a stale
-snapshot by a registry that simply withholds newer ones. The last is
-independent of signing and is not solved by it.
+\paragraph{Divergence was a question of what to record, not of what to compute.}
+Section~\ref{sec:divergence} makes \texttt{parents} a list, which is the whole
+structural change. Because a module composition is a set of immutable,
+content-addressed blocks, no textual conflict is representable and the structural
+reconciliation is set arithmetic; because a snapshot is a complete statement of
+composition rather than a patch, merge, rebase, and squash all produce the same
+blocks and differ only in the lineage they record, which once snapshots are
+signed turns the choice into a question of attribution. The
+conflicts that remain are semantic, and they are resolved by re-validating the
+reconciled result as if it were an ingestion, so a conflict surfaces as a
+validation verdict instead of an unresolvable state. A contribution from outside
+then needs no new object at all: it is a signed snapshot, in another repository,
+whose parent belongs to the maintainer's history.
+
+Section~\ref{sec:security} states the adversarial model both of those imply,
+including the exposure the architecture creates by design: preserved evidence is
+routed into an external model, so a poisoned source that survives ingestion is
+replayed with the protocol's own verification stamp attached. Verification means
+that content is authentically what was committed, never that it is true or safe
+to act on, and this document says so where a reader will meet it.
+
+\paragraph{What the protocol still owes.}
+Six questions remain, and they are smaller and better specified than the two just
+closed.
+
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Freshness.} Everything verifies offline, so a hostile registry
+  cannot fabricate state, but it can withhold: serve an older, legitimately
+  signed snapshot indefinitely. Signing does not fix this. The known answers,
+  expiring metadata~\cite{samuel2010tuf} and an append-only transparency
+  log~\cite{rfc9162}, both require a party outside the artifact, which is why
+  neither is adopted here without deciding what to trade for it. This is the
+  largest of the six.
+  \item \textbf{Removal from a travelling index.} The protocol now requires an
+  index to be bound to its composition, and requires a stale one to be omitted
+  or reported rather than shipped. It does not define deletion of a single entry,
+  because deletion from an approximate nearest-neighbour structure is
+  engine-specific and lossy. Whether a protocol-level removal is worth
+  specifying, given that omission is always available, is open.
+  \item \textbf{A deterministic path for partial evidence loss.} A derived block
+  that loses one of several sources cannot survive, because its citations are
+  inside its identity. Rebuilding it currently costs a full round trip through
+  the external model even though the surviving evidence has not changed, and a
+  cheaper deterministic path for that specific case is undefined.
+  \item \textbf{Propagation of erasure.} A redaction destroys bytes locally. The
+  protocol can publish the fact of a removal, but a distributed brain can only
+  signal destruction, not guarantee it across copies already pulled.
+  \item \textbf{Decay in episodic memory.} Which function governs demotion is
+  left to an implementation, and it is not obvious that it should be.
+  \item \textbf{Federation across trust boundaries.} Reconciliation assumes one
+  governed history. Nothing yet says how two independently governed brains, with
+  different trust roots, cite each other's evidence without one of them adopting
+  the other's authorities.
+\end{itemize}
 
 Validating all of this against real, multi-source brains remains the natural
-next step.
+next step, and the properties added here are the ones that make such a
+validation meaningful beyond a single author: a brain that several parties
+extend is exactly the case where integrity was never the hard part.
 
 % ===========================================================================
 \bibliographystyle{plainnat}
