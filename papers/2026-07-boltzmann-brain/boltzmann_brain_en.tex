@@ -1396,6 +1396,27 @@ afterwards are not shaped like the ones written before. Because
 \texttt{block\_id}, this is not a cosmetic concern. Three rules keep an evolving
 brain readable.
 
+\paragraph{Registered means registered with this protocol.}
+``Registered'' carries the identity layer, so it cannot stay implicit. The
+schema set is part of the specification: block schemas are published as a
+normative companion document, versioned with the protocol, and a schema is
+registered exactly when that companion carries it. Nothing looser survives
+contact with \texttt{block\_id}: the version sits inside the identity, so a
+per-deployment registry would make identity comparable only within a
+deployment, and two parties holding the same knowledge would compute
+different names for it, the silent failure Section~\ref{sec:serialization}
+exists to prevent, re-entering through the version field. Three consequences
+are normative. \emph{Satisfies} is mechanical: a payload satisfies a schema
+exactly when it validates against it, with no coercion and no members the
+schema does not name. \emph{Oldest} is by registration number: the companion
+assigns each memory type's schemas consecutive versions, and the rule below
+selects the smallest-numbered schema the payload satisfies, which stays
+well-defined even when evolution is not monotonic, so a payload satisfying
+versions 1 and 3 but not 2 is written under 1. And an implementation claiming
+the writer role MUST implement the registered set for every memory type it
+writes, because a writer missing an older schema would version blocks the
+newer way and silently fork their identities.
+
 \paragraph{A version is a statement, not a preference.}
 A block MUST be written under the \emph{oldest} registered schema its payload
 satisfies, and the proposer of a block does not get to choose. Writing under the newest schema instead would let a new schema silently
@@ -4183,8 +4204,8 @@ claiming nothing at all.
 Agreement on the identity layer cannot be established by prose, because every
 disagreement in it is silent: two implementations that serialize differently do
 not fail, they simply compute different identifiers for the same knowledge and
-stop sharing blocks. Conformance is therefore anchored in published test vectors, covering the six
-places where a divergence would be invisible:
+stop sharing blocks. Conformance is therefore anchored in published test vectors, covering the
+seven places where a divergence would be invisible:
 
 \begin{itemize}[leftmargin=1.4em]
   \item \textbf{Serialization}: values and the exact canonical bytes they
@@ -4193,7 +4214,10 @@ Basic Multilingual Plane (where code-unit and code-point order differ), an
 NFC/NFD pair yielding two distinct blocks, and a duplicate-key document
 (Section~\ref{sec:serialization}).
   \item \textbf{Block identifiers}: envelopes and the \texttt{block\_id} each
-  one hashes to.
+one hashes to.   \item \textbf{Schema selection}: payloads and the
+\texttt{schema\_version} the oldest-that-fits rule assigns them against the
+registered set, including a payload that satisfies several registered schemas
+(Section~\ref{sec:schema-versioning}).
   \item \textbf{Merkle roots}: leaf sets and the root the construction of
 Section~\ref{sec:merkle} produces, including the empty set, odd-sized trees,
 where a wrong split is otherwise easy to miss, a permuted composition that
