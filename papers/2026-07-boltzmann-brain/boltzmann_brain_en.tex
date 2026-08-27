@@ -1337,6 +1337,7 @@ manifest  artifactType: application/vnd.gaussia.boltzmann.brain.v1+json
     semantic   -> sha256:CCC
     procedural -> sha256:DDD
     provenance -> sha256:EEE
+    history    -> sha256:FFF   annotations: snapshot-count
     (vector index layers, when one travels)
 \end{verbatim}
 The OCI manifest is small, and downloading it does not imply downloading any
@@ -1347,6 +1348,24 @@ conversion, and the trust root arrives with every install
 Signatures are deliberately absent from this listing: they are published as
 separate artifacts referring to the manifest, for reasons
 Section~\ref{sec:publish-signed} gives.
+
+\paragraph{The history layer.}
+A snapshot names its parents by digest, and several rules of
+Section~\ref{sec:authenticity} run by walking that chain: finding the
+trust-root revision in force, checking a quorum, computing the difference that
+decides required scopes. An artifact that carried only its head would name
+documents no consumer can resolve, leaving those rules checkable by nobody but
+the publisher. A complete brain therefore carries a \emph{history layer}: the
+snapshot documents of the head's first-parent ancestry, in canonical bytes,
+together with the composition documents they reference. Compositions travel
+because required scopes are computed from differences between compositions;
+without a parent's compositions, every pulled commit is undecidable between an
+ingest and a canonical drop. Ancestor \emph{blocks} do not travel. A publisher
+of a complete brain MUST include the ancestry back to the genesis snapshot;
+the cost is small, since a snapshot document is a few hundred bytes and
+compresses well against its near-identical siblings, and
+Section~\ref{sec:verification} states what a verifier reports when the chain
+it can resolve stops short.
 
 \paragraph{Media types.}
 Two clients that disagree on media types cannot pull each other's brains, so these are normative here
@@ -1363,6 +1382,7 @@ Two clients that disagree on media types cannot pull each other's brains, so the
 Artifact type & \texttt{application/vnd.gaussia.boltzmann.brain.v1+json} \\
 Config (snapshot) & \texttt{application/vnd.gaussia.boltzmann.snapshot.v1+json} \\
 Module layer & \texttt{application/vnd.gaussia.boltzmann.module.\{type\}.v1.tar+gzip} \\
+History layer & \texttt{application/vnd.gaussia.boltzmann.history.v1+tar+gzip} \\
 Vector index layer & \texttt{application/vnd.gaussia.boltzmann.index.vector.v1+bin} \\
 Signature record & \texttt{application/vnd.gaussia.boltzmann.signature.v1+json} \\
 \bottomrule
@@ -1572,7 +1592,14 @@ digests commit to the whole prior history, since changing any ancestor would
 change its digest and break the chain leading to the signed value. A conforming
 implementation MUST therefore attach signatures to snapshots, and MUST NOT
 require a signature over any other object to establish authorship.
-Signing the head is sufficient; signing every historical snapshot is OPTIONAL.
+Signing the head is sufficient for content: the parent digests already commit
+to every ancestor's composition, so re-signing history adds nothing to
+integrity, and signing every historical snapshot is OPTIONAL. Authority is the
+exception. A trust-root revision is legitimate only through the
+\texttt{govern} signatures that approved it (Section~\ref{sec:trust-root}), so
+the signature records covering every trust-root revision in the ancestry MUST
+travel with the brain, or the quorum rule becomes uncheckable by anyone
+downstream.
 
 Because the snapshot names each module's Merkle layout and each block envelope
 names its serialization, a signature commits to \emph{how} the values were
@@ -2101,6 +2128,25 @@ rather than as one boolean.
   position.
 \end{enumerate}
 
+\paragraph{Authority is a property of the chain.}
+The authenticity check does not stop at the head. A verifier MUST NOT report a
+snapshot as authorized unless the first-parent chain resolves from the head
+back to its anchor, which is the pinned trust root where one exists and the
+genesis on first contact; every trust-root revision along that chain carries
+the \texttt{govern} quorum its predecessor required; and every ancestor's
+difference from its own first parent was covered by the scopes its signer
+held. The last clause makes the forward propagation of rejection in
+Section~\ref{sec:cases} normative rather than narrative: a head whose ancestry
+contains an unauthorized change is unauthorized, however clean the head itself
+looks, and without this rule whoever merges could launder a privileged change
+by measuring their diff against a branch that had already made it. When the
+chain cannot be resolved that far, because history was withheld or a mirror
+truncated it, the verifier MUST report \emph{chain truncated}
+(Table~\ref{tab:failures}): integrity is intact, and authority above the
+deepest resolvable snapshot is undecidable. A partial install does not weaken
+the rule, because the history layer carries documents rather than modules, so
+ancestry resolves regardless of which modules are held.
+
 Keeping them distinct matters in practice. A consumer with no trust anchor can
 still verify integrity completely, which is the zero-configuration case that
 must keep working. And a consumer that reports a single verified flag cannot
@@ -2463,6 +2509,7 @@ grouped by what a caller can do about them.}
 \quad Compromised key       & The key's signatures are withdrawn from a recorded position onward. \\
 \quad Quorum failure        & A trust-root revision lacks the required \texttt{govern} signatures from the previous revision. \\
 \quad Trust root mismatch   & The trust root does not match the pinned digest. \\
+\quad Chain truncated       & The first-parent ancestry cannot be resolved back to the anchor; authority above the deepest resolvable snapshot is undecidable, integrity is unaffected. \\
 \midrule
 \multicolumn{2}{@{}l}{\emph{Reconciliation} (Section~\ref{sec:divergence})} \\
 \quad Divergence            & The remote is not an ancestor of the local snapshot. \\
