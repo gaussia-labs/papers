@@ -170,20 +170,18 @@ Large language models have made it cheap to \emph{produce} knowledge (notes,
 summaries, extracted facts, procedures), but expensive to \emph{own} it. In
 practice, the knowledge a user accumulates while working with an LLM tends to
 be captured in a form dictated by whichever provider, agent framework, or
-vector database happens to be in use. Embeddings are computed with a specific
-model, chunks are shaped by a specific pipeline, and the resulting store is
-rarely portable, verifiable, or re-interpretable. When the model changes, the
-provider changes, or the indexing strategy changes, the knowledge is often
-effectively lost, or must be rebuilt from scratch.
+vector database happens to be in use: embeddings computed with a specific
+model, chunks shaped by a specific pipeline, and a store that is rarely
+portable, verifiable, or re-interpretable. When the model, the provider, or the indexing strategy changes, that knowledge
+is often effectively lost, or must be rebuilt from scratch.
 
 This paper argues that knowledge should be a \emph{first-class, portable
 artifact} that outlives any particular model or vendor. We present
 \textbf{Boltzmann Brain}, an architecture whose sole responsibility is to
 conserve information, organize it into memories with distinct purposes,
-maintain verifiable versions, and retrieve relevant evidence. The
-brain contains no language model of its own. It integrates with whatever LLM
-the user chooses, which interprets sources during ingestion and contextualizes
-results during query. The design is captured by a single guiding idea:
+maintain verifiable versions, and retrieve relevant evidence. It contains no
+language model of its own, and the design is captured by a single guiding
+idea:
 
 \begin{callout}
 \emph{The brain conserves, validates, and retrieves knowledge. An external LLM
@@ -193,74 +191,62 @@ processes, contextualizes, and uses it.}
 \paragraph{The responsibility boundary.}
 The brain does not write the final answer. It returns knowledge blocks and
 evidence; an agent, interface, or downstream application decides how to
-contextualize them (Figure~\ref{fig:separation}). This boundary is what keeps
-the architecture independent of any provider: the Boltzmann Protocol governs
-structure, identity, validation, and distribution, while the semantic work
-(reading, extracting concepts, recognizing episodes, proposing procedures, and
-phrasing answers) is delegated to an interchangeable external model.
+contextualize them (Figure~\ref{fig:separation}). That boundary keeps the
+architecture independent of any provider: the Boltzmann Protocol governs
+structure, identity, validation, and distribution, and the semantic work is
+delegated to an interchangeable external model.
 
 \paragraph{Contributions.}
-This work makes the following contributions:
+This work contributes:
 \begin{enumerate}[leftmargin=1.4em]
-  \item A set of design principles and problems (Section~\ref{sec:principles})
-  for portable, verifiable, model-agnostic knowledge, and an argument for why
-  six requirements that existing work satisfies separately must hold over a
-  single artifact (Section~\ref{sec:related}).
+  \item Design principles for portable, verifiable, model-agnostic knowledge
+  (Section~\ref{sec:principles}), and an argument for why six requirements that
+  existing work satisfies separately must hold over a single artifact
+  (Section~\ref{sec:related}).
   \item A mapping from biological memory principles and classic systems
-  structures to concrete architectural decisions (Section~\ref{sec:inspiration}).
-  \item A five-module memory model (canonical, episodic, semantic,
-  procedural, and provenance; Section~\ref{sec:modules}) that treats the
-  canonical module as the root of observed evidence, together with an internal
-  module anatomy of content-addressed blocks, Merkle DAGs, and indices
-  (Section~\ref{sec:anatomy}).
-  \item A distribution model based on OCI Artifacts that enables selective
-  installation and incremental updates (Section~\ref{sec:distribution}), and a
+  structures to architectural decisions (Section~\ref{sec:inspiration}).
+  \item A five-module memory model, canonical, episodic, semantic, procedural
+  and provenance (Section~\ref{sec:modules}), rooted in the canonical module as
+  observed evidence, and a module anatomy of content-addressed blocks, Merkle
+  DAGs and indices (Section~\ref{sec:anatomy}).
+  \item A distribution model over OCI Artifacts giving selective installation
+  and incremental updates (Section~\ref{sec:distribution}), and a
   model-agnostic protocol with explicit ingestion and query contracts
   (Sections~\ref{sec:protocol}--\ref{sec:query}).
-  \item A treatment of how knowledge leaves a brain
-  (Section~\ref{sec:forgetting}): drop with Merkle rebuild and provenance
-  cascade for non-episodic modules, a privileged cascade when canonical evidence
-  is excluded, supersession for episodic memory, pruning of unreachable blocks,
-  and redaction when retained bytes must be destroyed.
-  \item A normative encoding for all of the above: the block envelope and its
-  canonical serialization (Section~\ref{sec:serialization}), the Merkle
-  construction and its layout identifier (Section~\ref{sec:merkle}), the
-  composition and snapshot documents (Sections~\ref{sec:composition-doc}
-  and~\ref{sec:snapshot}), the schema-versioning rules that let old clients read
-  new brains (Section~\ref{sec:schema-versioning}), and a conformance kit of
-  golden vectors (Section~\ref{sec:conformance}).
+  \item A treatment of how knowledge leaves a brain: drop with Merkle rebuild
+and provenance cascade, privileged when the excluded evidence is canonical
+(Section~\ref{sec:forgetting}). \item A normative encoding for all of it
+(Section~\ref{sec:anatomy}), and a conformance kit of golden vectors
+(Section~\ref{sec:conformance}).
   \item A specification of authenticity (Section~\ref{sec:authenticity}):
   signatures over snapshots, a trust root that travels inside the brain, signing
   scopes derived from the protocol's own operations, quorum-governed rotation of
-  the key list, and revocation expressed by position in the hash-linked chain
-  rather than by a clock.
+  the key list, and revocation by position in the hash-linked chain rather than
+  by a clock.
   \item A reconciliation model for diverged brains
   (Section~\ref{sec:divergence}): multi-parent snapshots, a three-way merge over
-  sets of immutable blocks, merge, rebase, and squash recast as recording
-  strategies that differ in attribution rather than in outcome, and a rule that
-  resolves the conflicts that remain by re-validating the result as an ingestion.
+  sets of immutable blocks, merge, rebase and squash recast as recording
+  strategies that differ in attribution rather than outcome, and a rule that
+  resolves the remaining conflicts by re-validating the result as an ingestion.
   \item A Security Considerations section (Section~\ref{sec:security}) stating
   what the protocol guarantees, what it does not, and where the burden sits,
-  including the structural exposure created by routing preserved evidence into an
-  external model.
+  including the exposure created by routing preserved evidence into an external
+  model.
 \end{enumerate}
 
 \paragraph{Scope of this version.}
 This document fixes both an architecture and the interoperability surface that
-follows from it. Everything two independent implementations must agree on to
-exchange a brain is normative here: the block envelope, the canonical
-serialization, the Merkle construction, the composition and snapshot documents,
-the distribution encoding, and the ingestion and query contracts
-(Section~\ref{sec:conformance} states how an implementation demonstrates
-agreement). What stays deliberately open is what an implementation may choose
+follows from it: everything two independent implementations must agree on to
+exchange a brain is normative here, and Section~\ref{sec:conformance} states
+how an implementation demonstrates agreement. What stays deliberately open is what an implementation may choose
 without breaking exchange: consolidation and contradiction-detection
 strategies, ranking and fusion, index engines, and pack sizing. The two
 questions an earlier version left open in the normative surface itself,
 authenticity of authorship and reconciliation of diverged brains, are specified
-here (Sections~\ref{sec:authenticity} and~\ref{sec:divergence}).
+here (Sections~\ref{sec:authenticity} and~\ref{sec:divergence});
 Section~\ref{sec:security} states the exposures that remain, and
-Section~\ref{sec:conclusion} states what the protocol still owes, chiefly
-freshness, which no signature establishes.
+Section~\ref{sec:conclusion} what the protocol still owes, chiefly freshness,
+which no signature establishes.
 
 \paragraph{Notational conventions.}
 The key words \textbf{MUST}, \textbf{MUST NOT}, \textbf{SHOULD}, and
@@ -292,7 +278,9 @@ pretty-printed form.
     (user) {\footnotesize user / agent / application};
   \draw[flow] (llm) -- (user);
 \end{tikzpicture}
-\caption{Separation of responsibilities. The LLM sends candidate blocks during
+\caption{Separation of responsibilities. The brain owns knowledge, identity,
+and verification; the external LLM owns interpretation and phrasing. The two
+communicate through a stable contract: the LLM sends candidate blocks during
 ingestion and receives Evidence Bundles during query.}
 \label{fig:separation}
 \end{figure}
