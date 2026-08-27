@@ -782,9 +782,10 @@ root. Three operations follow. \emph{Integrity} is checked by
 recomputing hashes from the leaves up and comparing the root. \emph{Membership}
 of a single block is proven with the sibling hashes along its path to the root
 (a Merkle proof of size $O(\log n)$), without downloading the rest of the
-module. \emph{Differencing} two versions compares roots top-down and descends
-only where child hashes differ, so the cost is proportional to what changed,
-not to the size of the module.
+module. \emph{Differencing} two versions is a set operation over their sorted leaf
+lists, linear in the size of the module and cheap at that size, since each
+leaf is a single digest. The tree is needed for the first two operations only,
+which is why nothing beyond the leaves and the root is persisted.
 
 \paragraph{The construction is normative.}
 Roots are only comparable between clients that compute them the same way, so the
@@ -1654,8 +1655,9 @@ object and therefore changes the commit's identity when it is re-signed. Keeping
 
 \begin{itemize}[leftmargin=1.4em]
   \item Snapshot identity does not depend on whether, or by whom, a snapshot was
-  signed. Two parties who assembled the same knowledge still compute the same
-  snapshot digest.
+signed. The converse constraint follows from \texttt{labels} living inside the
+document: re-labelling produces a new snapshot identity, and existing
+signatures do not carry over.
   \item A snapshot committed locally without a signature becomes signed at
   publication \emph{without changing identity}, which matters because
   Section~\ref{sec:local-state} already separates local state from publication.
