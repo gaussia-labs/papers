@@ -1342,10 +1342,10 @@ manifest  artifactType: application/vnd.gaussia.boltzmann.brain.v1+json
     (vector index layers, when one travels)
 \end{verbatim}
 The OCI manifest is small, and downloading it does not imply downloading any
-module. Making the snapshot the config blob means the same document is both the
-local state and the wire format, so publishing is a transfer rather than a
-conversion. It also means the trust root of Section~\ref{sec:trust-root} arrives
-with every install, since there is no install that does not fetch the config.
+module. Making the snapshot the config blob means the same document is both the local
+state and the wire format, so publishing is a transfer rather than a
+conversion, and the trust root arrives with every install
+(Section~\ref{sec:trust-root}).
 Signatures are deliberately absent from this listing: they are published as
 separate artifacts referring to the manifest, for reasons
 Section~\ref{sec:publish-signed} gives.
@@ -1407,13 +1407,12 @@ downloading (Table~\ref{tab:annotations}).
 \end{tabularx}
 \end{table}
 
-The \texttt{merkle-root} annotation deserves emphasis because it is deliberately
-distinct from the descriptor's own digest, and that distinction is the third
-level of Section~\ref{sec:hashes} made operational. The digest identifies the
-transportable file; the root identifies the logical composition inside it. Two
-registries holding the same brain agree on digests while knowing nothing about
-modules or snapshots, which is exactly the gap Section~\ref{sec:composition}
-identified in composing OCI with a retrieval stack. This annotation closes it.
+The \texttt{merkle-root} annotation is deliberately distinct from the
+descriptor's own digest, and that distinction is the third level of
+Section~\ref{sec:hashes} made operational: the digest identifies the
+transportable file, the root identifies the logical composition inside it.
+This is the annotation that closes the gap Section~\ref{sec:composition}
+identified in composing OCI with a retrieval stack.
 
 The \texttt{source-snapshot} annotation handles publishing a subset of modules.
 Such an artifact's config carries a \emph{reduced} snapshot, which by
@@ -1461,18 +1460,16 @@ modules, the blocks inside them, and their query contract.
 \subsection{Local state, atomicity, and divergence}
 \label{sec:local-state}
 
-Everything described so far is content-addressed and immutable. A working brain
-needs exactly one piece of mutable state: a pointer saying which snapshot is
-current. Isolating it to a single pointer is what makes a commit atomic, and it
-is the only place where the ordering of writes matters.
+Everything described so far is content-addressed and immutable. A working brain needs exactly one piece of mutable state: a pointer saying
+which snapshot is current. Isolating it to a single pointer is what makes a
+commit atomic, and it is the only place where write ordering matters.
 
 \paragraph{Commit is a pointer move.}
 A conforming implementation MUST write every blob a new snapshot references
 before moving the pointer, and MUST move the pointer last. Blobs written and
 never referenced are unreachable and will be reclaimed by pruning
 (Section~\ref{sec:forgetting}); a pointer moved before its blobs exist would
-name a state that cannot be resolved. The asymmetry is the whole reason a commit
-can be interrupted without corrupting a brain.
+name a state that cannot be resolved. The asymmetry is why a commit can be interrupted without corrupting a brain.
 
 \paragraph{Retained roots.}
 Alongside the current snapshot, a brain keeps a set of retained snapshots:
@@ -1495,16 +1492,10 @@ fast-forwards. If it is not, the two brains have diverged, and the
 implementation MUST refuse the publish and report where the histories parted,
 rather than overwrite.
 
-Refusing is where this subsection's obligation ends, not where the protocol
-stops. Detecting divergence is a reader's duty and belongs here; deciding what to
-do next is a separate question, and Section~\ref{sec:divergence} answers it.
-Because a snapshot names its parents as a list, a reconciliation is
-representable, and because a module composition is a set of immutable blocks,
-most of one is mechanical. Two cases this subsection would otherwise leave
-stranded are resolved there rather than by hand: a diverged history becomes a
-snapshot with two parents, and a partial install is published back as a
-reconciliation in which the modules it never fetched take their roots from the
-remote unchanged (Section~\ref{sec:partial-publish}).
+Detecting divergence is a reader's duty and belongs here; deciding what to do
+next is a separate question, and Section~\ref{sec:divergence} answers it,
+including the partial install that cannot otherwise be published back
+(Section~\ref{sec:partial-publish}).
 
 % ===========================================================================
 \section{Authenticity and Trust}
@@ -2344,14 +2335,10 @@ portable data, and any client that speaks the protocol can read and extend it.
 The protocol includes no LLM of its own; it governs structure, identity,
 validation, indices, snapshots, and distribution.
 
-The operations divide into five \emph{roles}. The division is not decorative: a
-role is the unit of conformance (Section~\ref{sec:conformance}) and the unit of
-capability. A brain published for consumption needs only the reading role
-implemented on the consumer's side; a client that never writes need not implement
-validation at all; and a consumer that recomputes integrity while holding no
-trust anchor need not implement authenticity, which is exactly the
-zero-configuration case Section~\ref{sec:integrity-total} guarantees.
-Table~\ref{tab:operations} states the surface.
+The operations divide into five \emph{roles}, and a role is both the unit of
+conformance (Section~\ref{sec:conformance}) and the unit of capability: a
+client implements what it claims and no more. Table~\ref{tab:operations}
+states the surface.
 
 \begin{table}[htbp]
 \centering
