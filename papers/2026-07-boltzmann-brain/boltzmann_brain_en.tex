@@ -4052,13 +4052,14 @@ as trusted instruction.
 
 Where the burden sits follows from the boundary of
 Section~\ref{sec:protocol}. The protocol governs what is stored and returns data
-rather than prose; the caller decides what to do with it. A caller that hands
-retrieved evidence to a model SHOULD treat it as untrusted input, separate it
-from instructions, and constrain what the model is permitted to do as a result of
-reading it. The protocol contributes what it honestly can: every retrieved block names its
-canonical source, so a suspect claim can be traced to
-the bytes that produced it, and every derived block names its producer, so a
-poisoned batch can be excluded as a set.
+rather than prose; the caller decides what to do with it. A caller that hands retrieved evidence to a model SHOULD treat it as untrusted
+input. How to mitigate what untrusted input can do, separating it from
+instructions, constraining the model that reads it, is the craft of whoever
+operates the model, exercised where the model is, with tools this protocol
+neither sees nor prescribes. The protocol contributes what it honestly can:
+every retrieved block names its canonical source, so a suspect claim can be
+traced to the bytes that produced it, and every derived block names its
+producer, so a poisoned batch can be excluded as a set.
 
 \subsection{Poisoning in bulk, and its remedy}
 \label{sec:bulk-poisoning}
