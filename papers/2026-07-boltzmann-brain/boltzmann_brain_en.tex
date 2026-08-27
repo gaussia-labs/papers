@@ -937,7 +937,8 @@ is.
                    "composition":     "sha256:CCC2doc",
                    "block_count":     1907,
                    "layout":          "rfc6962-sorted/1",
-                   "embedding_model": "bge-m3@1.5" }
+                   "embedding_model": "bge-m3@1.5",
+                   "index_digest":    "sha256:III2" }
   },
   "created_at": "2026-07-24T10:15:00Z",
   "parents":    ["sha256:PREVIOUS_SNAPSHOT"],
@@ -946,11 +947,12 @@ is.
 }
 \end{verbatim}
 
-Each module reference carries the root (its logical identity), the digest of the
-composition document (so the version can be reopened, not merely verified), the
-block count, the layout, and, when a vector index travels with the module, the
-embedding model and version that produced it
-(Section~\ref{sec:indices-derived}).
+Each module reference carries the root (its logical identity), the digest of
+the composition document (so the version can be reopened, not merely
+verified), the block count, the layout, and, when a vector index travels with
+the module, the embedding model and version that produced it together with the
+digest of the index payload, which is what places a travelling index inside
+the signed bytes (Section~\ref{sec:indices-derived}).
 
 Five properties do most of the work in the rest of the paper.
 
@@ -1073,6 +1075,17 @@ than a protocol operation, because deletion from an approximate
 nearest-neighbour structure is engine-specific and lossy. What the protocol
 requires is narrower and checkable: a published artifact MUST NOT claim an index
 it did not build over the composition it ships.
+
+A fourth rule makes the binding hold against an adversarial registry rather
+than a careless publisher. When an index travels, the snapshot names the
+digest of the index payload alongside the embedding model
+(Section~\ref{sec:snapshot}), which places the index inside the signed bytes,
+and a consumer MUST reject a travelling index whose payload does not hash to
+the digest its snapshot names. Without this the index would be the one
+component of the artifact covered by no signature, and whoever controls a
+registry or mirror could substitute it: nothing fabricated would surface,
+since every returned block still verifies, but what surfaces would be theirs
+to choose (Section~\ref{sec:query-guarantees}).
 
 The separation is also representational: a block carries meaning symbolically,
 in its text and its explicit relations to other blocks, while learned
@@ -1406,8 +1419,15 @@ client that needed an extra dependency to read a published brain would be
 trading portability for a few percent.
 
 \paragraph{Annotations.}
-The manifest carries what a consumer needs to decide \emph{before}
-downloading (Table~\ref{tab:annotations}).
+The manifest carries what a consumer needs to decide \emph{before} downloading
+(Table~\ref{tab:annotations}). Annotations are unauthenticated hints: nothing
+signs a manifest, so every annotation is writable by whoever controls the
+registry. They MAY drive the decision to transfer, which is their purpose, but
+a consumer MUST re-verify any value it acted on against the config blob and
+the downloaded bytes, and MUST NOT base a trust decision on an annotation
+alone. The \texttt{trust-root} comparison against a pin
+(Section~\ref{sec:bootstrap}) is a pre-download courtesy; the comparison that
+counts is against the trust root inside the config.
 
 \begin{table}[htbp]
 \centering
@@ -2076,9 +2096,15 @@ The OCI Referrers API exists for this~\cite{oci_referrers}. A signature is
 published as a separate artifact whose \texttt{subject} is the brain's manifest,
 which is how signature attestations already
 work~\cite{newman2022sigstore, torres2019intoto}, so signatures accumulate
-\emph{around} an artifact without touching it. A conforming implementation MUST
-publish signatures this way, so that registry tooling can discover them without
-implementing this protocol.
+\emph{around} an artifact without touching it. A conforming implementation MUST publish signatures this way, so that registry
+tooling can discover them without implementing this protocol. The Referrers
+API is not universally present: the OCI distribution specification requires
+registries to support only the pull category, and instructs clients that meet
+a registry without the API to fall back to an image index at a tag derived
+from the subject digest, the referrers tag schema~\cite{oci_referrers}. An
+implementation MUST implement that fallback, for publication and for
+discovery; a publisher that skipped it on such a registry would appear to
+succeed and leave the brain discoverable as unsigned.
 
 But referrers exist only inside an OCI registry, and a signature that lives
 only there does not survive export to a tarball, a repository, or a disk. So
@@ -2706,6 +2732,7 @@ answer appropriate for the task.
 \end{enumerate}
 
 \subsection{Query planning and guarantees}
+\label{sec:query-guarantees}
 
 Step three above hides a query planner. By Principle~7 a query is declarative:
 the caller expresses intent (a query, optional filters over memory type, class, or recency, and optional hints such as a retrieval mode or a result
@@ -2724,10 +2751,21 @@ and a retrieval score, never prose; every returned block must be verified
 against the installed snapshot by hash and membership; and no single index may
 be treated as authoritative. The fusion method, ranking weights, graph
 expansion depth, and any adaptive intent classification are deliberately left
-to the implementation. A consequence worth stating explicitly is that the
-protocol guarantees \emph{verifiability, not identical ranking}: two conforming
-implementations may return the same verifiable set of blocks in a different
-order, because vector search is approximate and ranking is tunable.
+to the implementation. The guarantee has a name and a boundary. What this contract delivers is
+\emph{soundness}: every returned block is genuinely in the installed snapshot,
+and a consumer can re-check the claim, because hash and membership
+verification recompute from the bytes. What it does not deliver is
+\emph{completeness}: no retrieval mode, \texttt{exact} resolution included,
+promises that everything in the snapshot satisfying the query was returned,
+and no mechanism in this protocol lets a consumer detect that a relevant block
+was withheld; the \texttt{truncated} field of the Evidence Bundle is a
+responder's assertion, not a check. Ranking sits inside the same boundary: the
+protocol guarantees \emph{verifiability, not identical ranking}, and two
+conforming implementations may return the same verifiable set of blocks in a
+different order, because vector search is approximate and ranking is tunable.
+Filters sharpen the distinction rather than escape it: a filter MUST be
+honored on what is returned, and honoring it says nothing about what was
+withheld.
 
 \paragraph{The request.}
 A query separates three things: the terms, the conditions that narrow the
@@ -3542,9 +3580,18 @@ Publish a fabricated brain under someone else's name &
   Being accepted on first contact by a consumer with no pin
   (Section~\ref{sec:bootstrap}). \\
 Control the registry &
-  Fabricating state: signatures and roots verify offline. &
+  Fabricating state: signatures and roots verify offline. Substituting a
+  travelling index: its digest is named by the signed snapshot
+  (Section~\ref{sec:indices-derived}). &
   Withholding newer snapshots and serving a stale signed one
   (Section~\ref{sec:freshness}). \\
+Answer queries over a brain it holds &
+  Fabricating results: every returned block must verify by hash and
+  membership against the installed snapshot
+  (Section~\ref{sec:query-guarantees}). &
+  Suppressing results: completeness is not guaranteed, and a withheld block
+  leaves no trace in a verified Evidence Bundle
+  (Section~\ref{sec:query-guarantees}). \\
 Steal one authorized private key &
   Revising the trust root, when the quorum exceeds one
   (Section~\ref{sec:trust-root}). &
@@ -3681,6 +3728,9 @@ an implementation SHOULD make each of them the default rather than an option:
   (Section~\ref{sec:injection}).
   \item Treat a successful verification as saying nothing about freshness
   (Section~\ref{sec:freshness}).
+  \item Treat a verified Evidence Bundle as sound, never as complete: absence
+  of evidence in a result is not evidence of absence in the brain
+  (Section~\ref{sec:query-guarantees}).
 \end{itemize}
 
 % ===========================================================================
