@@ -292,9 +292,7 @@ pretty-printed form.
     (user) {\footnotesize user / agent / application};
   \draw[flow] (llm) -- (user);
 \end{tikzpicture}
-\caption{Separation of responsibilities. The brain owns knowledge, identity,
-and verification; the external LLM owns interpretation and phrasing. The two
-communicate through a stable contract: the LLM sends candidate blocks during
+\caption{Separation of responsibilities. The LLM sends candidate blocks during
 ingestion and receives Evidence Bundles during query.}
 \label{fig:separation}
 \end{figure}
@@ -2666,20 +2664,6 @@ grouped by what a caller can do about them.}
 \end{tabularx}
 \end{table}
 
-\subsection{The boundary between the protocol and the external LLM}
-
-The protocol defines which memory types exist and which schema each block must
-satisfy. The external LLM performs the semantic operations: reading,
-interpreting, extracting concepts, recognizing episodes, proposing procedures,
-and contextualizing results. \emph{The LLM proposes; the protocol governs what
-is stored.}
-
-This boundary keeps the brain provider-independent. The same snapshot can be
-used with a commercial service, a development agent, or a local model, as long
-as the client implements the Boltzmann Protocol. Trust does not rest on a
-privileged service: because every block, snapshot, and module is addressed by
-its hash, any client can verify integrity independently of who produced it.
-
 \begin{callout}[title=Design rule]
 The LLM never writes directly to the Merkle DAGs or to the indices.
 \end{callout}
@@ -2689,9 +2673,8 @@ The LLM never writes directly to the Merkle DAGs or to the indices.
 \label{sec:ingestion}
 
 Ingestion separates the preservation of a source from its interpretation
-(Figure~\ref{fig:ingestion}). First the original is registered
-deterministically; then the protocol delegates semantic processing to the
-user's LLM.
+(Figure~\ref{fig:ingestion}): the original is registered deterministically,
+then semantic processing is delegated to the user's LLM.
 
 \begin{figure}[t]
 \centering
@@ -3744,49 +3727,6 @@ remote named, no module regresses, and the \texttt{source-snapshot} annotation o
 Section~\ref{sec:distribution} continues to record the full snapshot a projection
 was taken from. A conforming implementation MUST NOT publish a partial snapshot
 over a tag naming modules that snapshot omits.
-
-% ===========================================================================
-\section{Knowledge Lifecycle}
-\label{sec:lifecycle}
-
-The full lifecycle ties the previous sections together:
-
-\begin{enumerate}[leftmargin=1.6em]
-  \item \textbf{Source:} the user provides information via their LLM and a skill.
-  \item \textbf{Canonical registration:} the protocol preserves the original,
-  computes its hash, and records provenance.
-  \item \textbf{Delegation:} the protocol returns a task and a processing schema.
-  \item \textbf{Interpretation:} the LLM proposes episodic, semantic, and
-  procedural blocks and relations.
-  \item \textbf{Validation:} the protocol checks structure, references,
-  duplicates, and policies.
-  \item \textbf{Commit:} accepted candidates receive hashes and are stored as
-  immutable blocks.
-  \item \textbf{Indexing:} B\textsuperscript{+} trees, lexical search,
-  vectors, and graph are updated.
-  \item \textbf{Versioning:} the Merkle roots of the affected modules change.
-  \item \textbf{Publication:} OCI distributes only the modified physical modules.
-  \item \textbf{Attribution:} the published snapshot is signed, and a consumer
-  verifies integrity and authorship as two separate results
-  (Section~\ref{sec:authenticity}).
-  \item \textbf{Query:} the LLM obtains Evidence Bundles and transforms them
-  for the user.
-  \item \textbf{Contribution:} an outside party extends the brain in a
-  repository of their own, and the maintainer fetches, validates, and reconciles
-  the result (Section~\ref{sec:divergence}).
-  \item \textbf{Reconsolidation:} new evidence or corrections generate later
-  candidates and snapshots.
-  \item \textbf{Forgetting and retention:} non-episodic modules drop wrong or
-  obsolete blocks, rebuild their Merkle roots, and cascade through provenance
-  (canonical drops always cascade); prune what no retained root needs; episodic
-  memory supersedes; redaction destroys retained bytes only when policy requires
-  it (Section~\ref{sec:forgetting}).
-\end{enumerate}
-
-The canonical, episodic, semantic, procedural, and provenance memories remain
-at the center of the architecture. The change consists solely in decoupling
-cognitive processing: the protocol organizes and governs; the external LLM
-interprets and contextualizes.
 
 % ===========================================================================
 \section{Security Considerations}
