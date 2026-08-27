@@ -427,6 +427,32 @@ GraphRAG and Cognee illustrate the convergence toward hybrid representations
 that mix text, vectors, and graphs~\cite{graphrag_indexing, graphrag_query,
 cognee_concepts, cognee_cognify}.
 
+% Re-check both concurrent-work citations immediately before submission:
+% PAM is v1-only (Aug 2026); memorywire is at v4 (12 Aug 2026) and reserves
+% the right to break its format through v0.5.
+\paragraph{Concurrent work.}
+Two 2026 preprints occupy the nearest ground and predate this paper by weeks.
+Portable Agent Memory~\cite{ravindran2026pam} defines a five-component typed
+memory whose entries are content-addressed (BLAKE3 over a canonical JSON the
+format itself defines), linked into a Merkle-DAG provenance graph, and covered
+by a single Ed25519 operator signature, with capability-scoped disclosure and
+an injection-aware rehydration procedure. It is the closest published design,
+and the distance is the verification and distribution surface: it specifies no
+standardized tree construction (no RFC 9162 Merkle Tree Hash, per-module
+roots, or inclusion proofs), no standardized canonicalization, no distribution
+encoding (no OCI artifact, selective installation, or history transport), and
+no key governance (no scoped trust root, quorum rotation, positional
+revocation, or reconciliation semantics), and its retention model does not
+reach drop cascades or redaction. memorywire~\cite{munirathinam2026memorywire}
+is a vendor-neutral wire format for five memory operations over four memory
+types, motivated by the same absence of a shared format; its version 0 defines
+no content addressing, hashing, or signing, and lists signed envelopes and
+audit chains as roadmap items. Both corroborate the diagnosis of
+Section~\ref{sec:principles} rather than deliver the artifact this paper
+specifies: the conjunction of canonical evidence, a normative Merkle
+construction with a named layout, scoped and quorum-governed authenticity, and
+module-granular OCI distribution remains unclaimed by either.
+
 \paragraph{Substrate rather than alternatives.}
 Two standards that recur throughout this paper are deliberately absent from the
 comparison. MCP standardizes how applications connect to external resources and
