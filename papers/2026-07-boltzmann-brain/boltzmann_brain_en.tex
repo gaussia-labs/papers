@@ -780,6 +780,25 @@ that a human can read and grep is worth more here than compactness, and RFC 8785
 has independent implementations across the language ecosystems a client is
 likely to be written in.
 
+\paragraph{Identity and signature verification are different dependents.}
+Canonical bytes do two jobs here, and adjacent standards object to one of
+them. For \emph{identity} there is no alternative: \texttt{block\_id} exists
+so that two parties who registered the same knowledge compute the same name,
+and that is what a canonical form is for. For \emph{signature verification},
+DSSE and the in-toto attestation framework recommend against it: an envelope
+should avoid depending on canonicalization for security and should not require
+the verifier to parse the payload before verifying, because a parser
+disagreement between two payloads sharing one canonical encoding becomes a
+signature bypass~\cite{dsse,intoto_envelope}. C2PA answers the same objection
+by constraining the producer instead: claims are serialized under RFC 8949's
+deterministic-encoding requirements and signed as stored, with no verifier-side
+re-encoding~\cite{c2pa_spec}. This design lands on that side of the line.
+Canonical form is an encoder obligation; stored and transported bytes are the
+canonical bytes (Section~\ref{sec:blocks}, and Section~\ref{sec:distribution}
+for the config blob); and a verifier checks canonicality and then hashes and
+verifies the bytes as stored, never trusting a parse-and-re-serialize round
+trip for the answer.
+
 \begin{callout}[title=Two value domains are excluded from a payload]
 JCS defines float serialization through ECMAScript rules that are subtly hard to
 reproduce identically across languages, and integers outside the IEEE-754 safe
@@ -1399,7 +1418,14 @@ The OCI manifest is small, and downloading it does not imply downloading any
 module. Making the snapshot the config blob means the same document is both the local
 state and the wire format, so publishing is a transfer rather than a
 conversion, and the trust root arrives with every install
-(Section~\ref{sec:trust-root}).
+(Section~\ref{sec:trust-root}). The config blob MUST be exactly the canonical
+serialization of the snapshot document, and a consumer MUST reject an artifact
+whose config is not in canonical form; the same rule applies to composition
+documents wherever they travel. This is the decoding check of
+Section~\ref{sec:blocks} applied one level up, and it is what keeps the
+digests that name a snapshot in three places, the OCI digest of the config,
+the entries of \texttt{parents}, and the digest a signature record covers, one
+value rather than three.
 Signatures are deliberately absent from this listing: they are published as
 separate artifacts referring to the manifest, for reasons
 Section~\ref{sec:publish-signed} gives.
