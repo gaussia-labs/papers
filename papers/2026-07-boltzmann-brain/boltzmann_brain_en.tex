@@ -2094,7 +2094,18 @@ parents and comparing one digest.
 
 A \texttt{govern\_quorum} of~1 already stops a stranger, who holds no listed
 key at all. A quorum of~2 or more protects a brain against a single stolen
-legitimate key, which is the case worth designing for.
+legitimate key, which is the case worth designing for. The quorum needs
+headroom, though, and the reason is the failure the rule itself creates: when
+the quorum equals the number of \texttt{govern} holders, one compromised or
+simply lost key freezes governance permanently, since neither the attacker nor
+the remaining honest holders can assemble the signatures to publish a
+\texttt{compromised\_from} record or admit a replacement, while the attacker
+keeps signing within the stolen key's scopes. A deployment SHOULD keep more
+\texttt{govern} holders than the quorum requires, and an implementation SHOULD
+warn when creating or revising a trust root in which the two are equal. There is no recovery path inside the protocol: re-anchoring would be exactly
+the self-assertion the quorum rule exists to forbid, so the deadlock is a
+limitation this design accepts, and Section~\ref{sec:conclusion} lists it as
+open.
 
 \subsection{Retirement and revocation, without clocks}
 \label{sec:revocation}
@@ -4262,7 +4273,7 @@ replayed with the protocol's own verification stamp attached. Verification means
 that it is true or safe to act on.
 
 \paragraph{What the protocol still owes.}
-Seven questions remain, smaller and better specified than the two just closed.
+Eight questions remain, smaller and better specified than the two just closed.
 
 \begin{itemize}[leftmargin=1.4em]
   \item \textbf{Freshness.} Everything verifies offline, so a hostile registry
@@ -4274,6 +4285,12 @@ remains open is first contact. Signing does not fix this. The known answers,
   log~\cite{rfc9162}, both require a party outside the artifact, which is why
   neither is adopted here without deciding what to trade for it. This is the
   largest of the six.
+  \item \textbf{Governance recovery.} When the \texttt{govern} quorum
+  equals the number of holders, one compromised or lost key freezes
+  governance permanently (Section~\ref{sec:trust-root}). The margin rule
+  reduces the odds; a recovery path that does not reopen self-assertion,
+  perhaps social or out-of-band re-anchoring with consumer consent, is
+  unexplored.
   \item \textbf{Confidentiality and selective disclosure.} Everything in a
   brain is readable by whoever can pull it. Encrypted blocks, read control,
   and selective disclosure are unaddressed, and crypto-shredding stays out of
