@@ -3460,9 +3460,8 @@ over a tag naming modules that snapshot omits.
 \label{sec:security}
 
 A document claiming to be a standard owes a plain statement of what it
-guarantees, what it does not, and where the burden sits. Much of the burden here
-lands on the consumer, and saying so is the point rather than an admission.
-Table~\ref{tab:threats} summarizes; the subsections that follow treat the cases
+guarantees, what it does not, and where the burden sits. Much of the burden here lands on the consumer. Table~\ref{tab:threats}
+summarizes; the subsections that follow treat the cases
 where the architecture itself creates the exposure.
 
 \begin{table}[htbp]
@@ -3521,7 +3520,7 @@ passages~\cite{zou2024poisonedrag}, and content addressing does nothing to
 prevent it: a poisoned block is faithfully preserved, correctly identified, and
 honestly attributed.
 
-The consequence must be stated precisely, because the alternative is a false
+The consequence has to be stated precisely, because the alternative is a false
 sense of safety:
 
 \begin{callout}[title={What \texttt{verified} means, and what it does not}]
@@ -3538,8 +3537,8 @@ Section~\ref{sec:protocol}. The protocol governs what is stored and returns data
 rather than prose; the caller decides what to do with it. A caller that hands
 retrieved evidence to a model SHOULD treat it as untrusted input, separate it
 from instructions, and constrain what the model is permitted to do as a result of
-reading it. The protocol contributes what it can contribute honestly: every
-retrieved block names its canonical source, so a suspect claim can be traced to
+reading it. The protocol contributes what it honestly can: every retrieved block names its
+canonical source, so a suspect claim can be traced to
 the bytes that produced it, and every derived block names its producer, so a
 poisoned batch can be excluded as a set.
 
@@ -3557,9 +3556,8 @@ audit of a corpus.
 Signatures narrow the window further in one specific way. Because a snapshot's
 author is authenticated, a poisoned commit is attributable to a key rather than to
 a declared name, and \texttt{compromised\_from} withdraws every snapshot that key
-signed from a chosen chain position (Section~\ref{sec:revocation}). Attribution is
-the precondition for that response, which is the operational argument for
-Section~\ref{sec:authenticity} beyond impersonation.
+signed from a chosen chain position (Section~\ref{sec:revocation}). Attribution is the precondition for that response, and the operational
+argument for Section~\ref{sec:authenticity} beyond impersonation.
 
 \subsection{Freshness: the limitation signing does not remove}
 \label{sec:freshness}
@@ -3585,8 +3583,8 @@ party. Section~\ref{sec:conclusion} states this as open.
 
 \subsection{Erasure does not propagate}
 
-The limitation of Section~\ref{sec:erasure-verifiability} is worth restating in
-security terms. A redaction destroys bytes in the brain that performs it. It does
+The limitation of Section~\ref{sec:erasure-verifiability}, in security terms:
+a redaction destroys bytes in the brain that performs it. It does
 not reach copies already pulled elsewhere. The protocol can publish the fact of a
 removal, and a conforming implementation must report which blocks are
 tombstoned, but a distributed brain can only signal destruction, not guarantee
@@ -3645,7 +3643,7 @@ since each of them is defined in terms of reading a snapshot before changing it
 or attesting to it. An implementation that claims all five is \emph{fully
 conforming}.
 
-Authenticity is claimable separately for a reason that is easy to mistake for a
+Authenticity is claimable separately, for a reason easy to mistake for a
 weakness. A consumer that recomputes integrity while holding no trust anchor is
 not a degraded client: it is the zero-configuration case
 Section~\ref{sec:integrity-total} guarantees, and requiring signature
@@ -3665,8 +3663,8 @@ claiming nothing at all.
 Agreement on the identity layer cannot be established by prose, because every
 disagreement in it is silent: two implementations that serialize differently do
 not fail, they simply compute different identifiers for the same knowledge and
-stop sharing blocks. Conformance is therefore anchored in published test
-vectors, covering the four places where a divergence would be invisible:
+stop sharing blocks. Conformance is therefore anchored in published test vectors, covering the six
+places where a divergence would be invisible:
 
 \begin{itemize}[leftmargin=1.4em]
   \item \textbf{Serialization}: values and the exact canonical bytes they
@@ -3709,66 +3707,51 @@ suite.
 We presented Boltzmann Brain, a conceptual architecture for portable,
 verifiable, and model-agnostic knowledge. Its core commitment is a clean
 separation of concerns: the brain conserves, validates, and retrieves, while an
-external, interchangeable LLM interprets and contextualizes. From this
-commitment follow the five-module memory model, the content-addressed blocks
-versioned by Merkle DAGs, the derived indices, the three levels of hashes, a
-distribution model in which OCI Artifacts enable selective installation and
-incremental updates, and an account of how canonical evidence roots
-re-derivation, how non-episodic modules drop wrong knowledge with a privileged
-cascade when that knowledge's source is excluded, rebuild Merkle roots, and
-reclaim unreachable blocks, with redaction reserved for destroying retained
-bytes.
+external, interchangeable LLM interprets and contextualizes. From this commitment follow the five-module memory model, content-addressed
+blocks versioned by Merkle DAGs, derived indices, the three levels of hashes,
+OCI Artifacts as the distribution model, and an account of how knowledge
+leaves a brain.
 
-Beyond the architecture, this version fixes the interoperability surface: the
-block envelope and its canonical serialization, the Merkle construction and its
-layout identifier, the composition and snapshot documents, the schema-versioning
-rules, the distribution encoding, the ingestion and query contracts, and a
-conformance kit anchored in golden vectors.
+Beyond the architecture, this version fixes the interoperability surface, from
+the block envelope to a conformance kit anchored in golden vectors.
 
-It then addresses the two gaps an earlier version named as open, and the
-treatment of each turned out to be shorter than expected because the existing
-structure already did most of the work.
+It then addresses the two gaps an earlier version named as open, and in each
+case the existing structure did most of the work.
 
 \paragraph{Authenticity was a question of where, not of how much.}
-Every guarantee the hash structure makes is a guarantee of integrity, and
-integrity is already total: any consumer, offline and unconfigured, can confirm
-that a brain is exactly the brain its identifiers describe. What no amount of
-hashing can supply is authorship, because internal consistency is cheap to
-manufacture. Section~\ref{sec:authenticity} adds the one assertion the hashes
-cannot make, and adds it in one place: a snapshot already commits to every module
-root and, through its parents, to the entire prior history, so a single detached
-signature over it covers everything and nothing else needs signing. The keys
-authorized to produce such a signature travel inside the brain so that
-verification stays offline, their scopes are the protocol's own operations rather
-than invented roles, revising the list requires a quorum of keys authorized in
-the previous revision, and validity is decided by position in the hash-linked
-chain rather than by a timestamp a signer could forge. The one thing that cannot
-come from inside is trust at first contact, and that limitation is stated plainly.
+Integrity is already total: any consumer, offline and unconfigured, can
+confirm that a brain is exactly the brain its identifiers describe. What no
+amount of hashing supplies is authorship, because internal consistency is
+cheap to manufacture. Section~\ref{sec:authenticity} adds that one assertion
+in one place: a snapshot already commits to every module root and, through its
+parents, to the entire prior history, so a single detached signature over it
+covers everything. The authorized keys travel inside the brain so verification
+stays offline, their scopes are the protocol's own operations, revising the
+list requires a quorum from the previous revision, and validity is decided by
+position in the chain rather than by a forgeable timestamp. What cannot come
+from inside is trust at first contact.
 
 \paragraph{Divergence was a question of what to record, not of what to compute.}
 Section~\ref{sec:divergence} makes \texttt{parents} a list, which is the whole
-structural change. Because a module composition is a set of immutable,
-content-addressed blocks, no textual conflict is representable and the structural
-reconciliation is set arithmetic; because a snapshot is a complete statement of
-composition rather than a patch, merge, rebase, and squash all produce the same
-blocks and differ only in the lineage they record, which once snapshots are
-signed turns the choice into a question of attribution. The
-conflicts that remain are semantic, and they are resolved by re-validating the
-reconciled result as if it were an ingestion, so a conflict surfaces as a
-validation verdict instead of an unresolvable state. A contribution from outside
-then needs no new object at all: it is a signed snapshot, in another repository,
-whose parent belongs to the maintainer's history.
+structural change. A module composition is a set of immutable blocks, so no
+textual conflict is representable and the structural reconciliation is set
+arithmetic; a snapshot is a complete statement of composition rather than a
+patch, so merge, rebase and squash produce the same blocks and differ only in
+the lineage they record, which once snapshots are signed turns the choice into
+a question of attribution. The conflicts that remain are semantic, and
+re-validating the reconciled result as an ingestion turns each into a
+validation verdict instead of an unresolvable state. A contribution from
+outside then needs no new object: it is a signed snapshot, in another
+repository, whose parent belongs to the maintainer's history.
 
 Section~\ref{sec:security} states the adversarial model both of those imply,
 including the exposure the architecture creates by design: preserved evidence is
 routed into an external model, so a poisoned source that survives ingestion is
-replayed with the protocol's own verification stamp attached. Verification means
-that content is authentically what was committed, never that it is true or safe
-to act on, and this document says so where a reader will meet it.
+replayed with the protocol's own verification stamp attached. Verification means that content is authentically what was committed, never
+that it is true or safe to act on.
 
 \paragraph{What the protocol still owes.}
-Six questions remain, and they are smaller and better specified than the two just
-closed.
+Six questions remain, smaller and better specified than the two just closed.
 
 \begin{itemize}[leftmargin=1.4em]
   \item \textbf{Freshness.} Everything verifies offline, so a hostile registry
