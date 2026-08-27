@@ -806,9 +806,8 @@ that matter for security and for the guarantees claimed above:
 
 \paragraph{Leaves are sorted.}
 Leaves MUST be deduplicated and ordered by their digest before the tree is
-built. Sorting is what makes the root a pure function of the \emph{set} of
-blocks, which is precisely the claim that two parties who assembled the same
-blocks obtain the same root. A layout that preserved insertion order would break
+built. Sorting makes the root a function of the \emph{set} of blocks, which is the
+claim that two parties who assembled the same blocks obtain the same root. A layout that preserved insertion order would break
 that claim while looking correct in every single-writer test.
 
 \paragraph{The layout identifier.}
@@ -830,8 +829,8 @@ descent through stored nodes.
 Because blocks are shared across versions. When a new version reuses unchanged
 blocks, those blocks are shared by hash instead of duplicated, so a node may be
 referenced by more than one root. The structure is therefore a directed acyclic
-graph, as in Git's object store. This structural sharing is what makes
-incremental updates cheap (Section~\ref{sec:distribution}): a new version adds
+graph, as in Git's object store. This structural sharing makes incremental updates cheap
+(Section~\ref{sec:distribution}): a new version adds
 only the changed blocks and a new root, and reuses everything else by
 reference. What sharing guarantees is the reuse of blocks, which are the bytes a consumer
 would otherwise have to transfer; how much of the structure above the leaves
@@ -1120,8 +1119,7 @@ validation of Section~\ref{sec:validation} judges it, a drop removes it, and
 \paragraph{Three kinds of block.}
 A \emph{scheme} declares an axis of classification and whether that axis is
 exclusive. A \emph{class} is a node on one axis, carrying a label and the scheme
-it belongs to. A \emph{placement} files one canonical block under one class, and
-cites that canonical block as its evidence, which is what makes the canonical
+it belongs to. A \emph{placement} files one canonical block under one class, and cites that canonical block as its evidence, which makes the canonical
 cascade of Section~\ref{sec:drop} apply to it without a special rule: dropping a
 source removes its filings in the same commit, and nothing has to remember to
 clean up.
@@ -1460,8 +1458,8 @@ modules, the blocks inside them, and their query contract.
 \label{sec:local-state}
 
 Everything described so far is content-addressed and immutable. A working brain needs exactly one piece of mutable state: a pointer saying
-which snapshot is current. Isolating it to a single pointer is what makes a
-commit atomic, and it is the only place where write ordering matters.
+which snapshot is current. Isolating it to a single pointer makes a commit atomic, and it is the only
+place where write ordering matters.
 
 \paragraph{Commit is a pointer move.}
 A conforming implementation MUST write every blob a new snapshot references
@@ -1474,7 +1472,7 @@ name a state that cannot be resolved. The asymmetry is why a commit can be inter
 Alongside the current snapshot, a brain keeps a set of retained snapshots:
 tagged releases plus a bounded number of recent ones. This set is what
 reachability is computed from when pruning reclaims blocks
-(Section~\ref{sec:forgetting}), and it is what gives ``a retained root'' a precise meaning.
+(Section~\ref{sec:forgetting}), and gives ``a retained root'' a precise meaning.
 
 \paragraph{Origin.}
 A brain pulled from a registry MUST record where it came from: the repository
@@ -1740,9 +1738,9 @@ compromised mid-span cannot be described by a revision boundary.
 One consequence is normative, because it removes an obvious lie. A revision
 that admitted a key is itself in the chain, so \texttt{since} is
 \emph{confirmable} rather than merely asserted: a verifier walking revisions sees
-when a key first appeared. A trust root claiming a \texttt{since} earlier than
-the chain supports MUST be rejected, which is what stops a key that has just
-added itself from also claiming to have been authorized from the beginning.
+when a key first appeared. A trust root claiming a \texttt{since} earlier than the chain supports MUST be
+rejected, which stops a key that has just added itself from also claiming to
+have been authorized from the beginning.
 
 \paragraph{Why it is not a sixth module.}
 Modules are selectively installable (Section~\ref{sec:selective}), so a
@@ -1757,7 +1755,7 @@ to.
 \paragraph{Scopes are derived from operations, not invented.}
 A scope names something the protocol already defines rather than a generic
 role, so that a consumer can check a claim mechanically
-(Table~\ref{tab:scopes}). This is what operationalizes Principle~2: ``dropping
+(Table~\ref{tab:scopes}). This operationalizes Principle~2: ``dropping
 canonical evidence is allowed only under explicit policy'' today names a policy
 that a consumer has no way to confirm was honoured, and \texttt{drop:canonical}
 is what turns it into a checkable statement about who was permitted to do it.
@@ -1874,9 +1872,8 @@ conforming implementation MUST distinguish them:
 
 \begin{description}[leftmargin=2.2em, style=sameline, font=\normalfont\bfseries]
   \item[\texttt{retired\_from}] The revision from which the key is no longer
-  authorized. Signatures at earlier positions remain valid. Retirement can never
-  invalidate a signature that was valid before it, which is what makes an
-  ordinary departure harmless.
+  authorized. Signatures at earlier positions remain valid. Retirement can never invalidate a signature that was valid before it, which
+makes an ordinary departure harmless.
   \item[\texttt{compromised\_from}] A \emph{snapshot} from which the key's
   signatures are no longer trusted. It MAY precede the revision that records it,
   and it need not fall on a revision boundary, because compromise is discovered
