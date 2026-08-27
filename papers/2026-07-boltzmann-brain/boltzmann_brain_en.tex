@@ -361,34 +361,31 @@ replaceable interpreter rather than as the system of record.
 
 \subsection{Biology of memory}
 
-The architecture takes \emph{general principles} from neuroscience, not
-literal equivalences between brain regions and databases. The scientific
-literature describes multiple memory systems and an interaction among fast
-learning, stable knowledge, consolidation, associative recall, and adaptive
-forgetting~\cite{kumaran2016cls, goode2018engram, yassa2011pattern,
+Neuroscience describes several interacting memory
+systems~\cite{kumaran2016cls, goode2018engram, yassa2011pattern,
 knierim2016tracking, rebola2017pattern, nader2009reconsolidation,
-redondo2011tagging, ryan2022forgetting}. Figure~\ref{fig:biology} summarizes
-the translation from biological principles to architectural decisions.
+redondo2011tagging, ryan2022forgetting}. The architecture takes \emph{general
+principles} from that literature, not literal equivalences between brain
+regions and databases; Figure~\ref{fig:biology} maps each principle borrowed
+onto the decision it shaped.
 
 Complementary learning systems (CLS) theory distinguishes a fast,
 hippocampus-associated mechanism from slower, integrative cortical
-learning~\cite{kumaran2016cls}. For Boltzmann Brain this suggests separating
-the \emph{capture of episodes} from \emph{semantic consolidation}. The
-hippocampal indexing theory further motivates a distinction between the index
-that reactivates a memory and the distributed content of that
-memory~\cite{goode2018engram}, a distinction we mirror in our separation of
-indices from knowledge blocks. Pattern separation inspires deduplication, identity
-resolution, and contradiction detection; pattern completion inspires
-recovering a full memory from a partial query through hybrid
-search~\cite{yassa2011pattern, knierim2016tracking, rebola2017pattern}.
-Finally, reconsolidation suggests that retrieving knowledge can open a
-controlled revision~\cite{nader2009reconsolidation, redondo2011tagging}, while
-work on pruning and active forgetting suggests that removing what is not
-reinforced is a regulated process rather than a failure, and that accessibility
-can be reduced without destroying the underlying
-evidence~\cite{paolicelli2011pruning, davis2017forgetting, ryan2022forgetting}.
-Section~\ref{sec:forgetting} develops this last point into concrete retention
-and erasure mechanisms.
+learning~\cite{kumaran2016cls}, so \emph{episodic capture} is separate from
+\emph{semantic consolidation} here. Hippocampal indexing separates the index
+that reactivates a memory from its distributed
+content~\cite{goode2018engram}, mirrored in the separation of indices from
+knowledge blocks. Pattern separation informs deduplication, identity
+resolution, and contradiction detection; pattern completion, recovering a full
+memory from a partial query through hybrid search~\cite{yassa2011pattern,
+knierim2016tracking, rebola2017pattern}. Reconsolidation makes retrieval an
+opening for controlled revision~\cite{nader2009reconsolidation,
+redondo2011tagging}. Pruning and active forgetting treat the removal of what is
+not reinforced as a regulated process rather than a failure, and reduce
+accessibility without destroying the underlying
+evidence~\cite{paolicelli2011pruning, davis2017forgetting, ryan2022forgetting};
+Section~\ref{sec:forgetting} develops both into concrete retention and erasure
+mechanisms.
 
 \begin{figure}[t]
 \centering
