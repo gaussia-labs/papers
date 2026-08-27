@@ -138,8 +138,8 @@ stored as typed, content-addressed blocks organized into five memory modules:
 canonical, episodic, semantic, procedural, and provenance. Each module bundles
 its blocks, a Merkle DAG that pins the exact composition of a version, and its
 indices. We separate three levels of hashes, for block identity, module
-composition, and transportable file, and package each module as a separate OCI
-Artifact, which yields selective installation and incremental updates.
+composition, and transportable file, and package each module as a separate OCI Artifact, which yields selective
+installation and updates at module granularity.
 Interaction happens through the \emph{Boltzmann Protocol}: the LLM proposes
 candidate blocks and consumes Evidence Bundles, while the protocol governs what
 is committed and returns evidence, never prose. Canonical blocks are the root of
@@ -210,7 +210,7 @@ This work contributes:
   observed evidence, and a module anatomy of content-addressed blocks, Merkle
   DAGs and indices (Section~\ref{sec:anatomy}).
   \item A distribution model over OCI Artifacts giving selective installation
-  and incremental updates (Section~\ref{sec:distribution}), and a
+and module-granular updates (Section~\ref{sec:distribution}), and a
   model-agnostic protocol with explicit ingestion and query contracts
   (Sections~\ref{sec:protocol}--\ref{sec:query}).
   \item A treatment of how knowledge leaves a brain: drop with Merkle rebuild
@@ -427,6 +427,32 @@ GraphRAG and Cognee illustrate the convergence toward hybrid representations
 that mix text, vectors, and graphs~\cite{graphrag_indexing, graphrag_query,
 cognee_concepts, cognee_cognify}.
 
+% Re-check both concurrent-work citations immediately before submission:
+% PAM is v1-only (Aug 2026); memorywire is at v4 (12 Aug 2026) and reserves
+% the right to break its format through v0.5.
+\paragraph{Concurrent work.}
+Two 2026 preprints occupy the nearest ground and predate this paper by weeks.
+Portable Agent Memory~\cite{ravindran2026pam} defines a five-component typed
+memory whose entries are content-addressed (BLAKE3 over a canonical JSON the
+format itself defines), linked into a Merkle-DAG provenance graph, and covered
+by a single Ed25519 operator signature, with capability-scoped disclosure and
+an injection-aware rehydration procedure. It is the closest published design,
+and the distance is the verification and distribution surface: it specifies no
+standardized tree construction (no RFC 9162 Merkle Tree Hash, per-module
+roots, or inclusion proofs), no standardized canonicalization, no distribution
+encoding (no OCI artifact, selective installation, or history transport), and
+no key governance (no scoped trust root, quorum rotation, positional
+revocation, or reconciliation semantics), and its retention model does not
+reach drop cascades or redaction. memorywire~\cite{munirathinam2026memorywire}
+is a vendor-neutral wire format for five memory operations over four memory
+types, motivated by the same absence of a shared format; its version 0 defines
+no content addressing, hashing, or signing, and lists signed envelopes and
+audit chains as roadmap items. Both corroborate the diagnosis of
+Section~\ref{sec:principles} rather than deliver the artifact this paper
+specifies: the conjunction of canonical evidence, a normative Merkle
+construction with a named layout, scoped and quorum-governed authenticity, and
+module-granular OCI distribution remains unclaimed by either.
+
 \paragraph{Substrate rather than alternatives.}
 Two standards that recur throughout this paper are deliberately absent from the
 comparison. MCP standardizes how applications connect to external resources and
@@ -461,9 +487,9 @@ useful, must hold \emph{at the same time and over the same artifact}:
   \item[R4. Derived, replaceable indices.] Indices are views that can be
   rebuilt or replaced when an engine or embedding model changes. Without this,
   knowledge dies with the model that indexed it.
-  \item[R5. Selective and incremental distribution.] A consumer can install one
-  module and update only what changed. Without this, sharing knowledge means
-  shipping everything, every time.
+  \item[R5. Selective, module-granular distribution.] A consumer can install one
+module, and an update re-transfers only the modules that changed. Without
+this, sharing knowledge means shipping everything, every time.
   \item[R6. Model-agnostic access contract.] A stable, declarative contract
   lets interchangeable models query and contribute. Without this, the store is
   reachable only through whoever wrote the integration.
@@ -782,9 +808,10 @@ root. Three operations follow. \emph{Integrity} is checked by
 recomputing hashes from the leaves up and comparing the root. \emph{Membership}
 of a single block is proven with the sibling hashes along its path to the root
 (a Merkle proof of size $O(\log n)$), without downloading the rest of the
-module. \emph{Differencing} two versions compares roots top-down and descends
-only where child hashes differ, so the cost is proportional to what changed,
-not to the size of the module.
+module. \emph{Differencing} two versions is a set operation over their sorted leaf
+lists, linear in the size of the module and cheap at that size, since each
+leaf is a single digest. The tree is needed for the first two operations only,
+which is why nothing beyond the leaves and the root is persisted.
 
 \paragraph{The construction is normative.}
 Roots are only comparable between clients that compute them the same way, so the
@@ -829,13 +856,13 @@ descent through stored nodes.
 Because blocks are shared across versions. When a new version reuses unchanged
 blocks, those blocks are shared by hash instead of duplicated, so a node may be
 referenced by more than one root. The structure is therefore a directed acyclic
-graph, as in Git's object store. This structural sharing makes incremental updates cheap
-(Section~\ref{sec:distribution}): a new version adds
-only the changed blocks and a new root, and reuses everything else by
-reference. What sharing guarantees is the reuse of blocks, which are the bytes a consumer
-would otherwise have to transfer; how much of the structure above the leaves
-is reused depends on the layout an implementation chooses, and internal nodes
-carry no content of their own.
+graph, as in Git's object store. This structural sharing makes new versions cheap to store: a version adds only
+the changed blocks and a new root, and reuses everything else by reference.
+Sharing guarantees the reuse of blocks in local storage; what an update
+re-transfers is decided by the distribution encoding, whose granularity is the
+module (Section~\ref{sec:distribution}). How much of the structure above the
+leaves is reused depends on the layout an implementation chooses, and internal
+nodes carry no content of their own.
 
 
 
@@ -936,7 +963,8 @@ is.
                    "composition":     "sha256:CCC2doc",
                    "block_count":     1907,
                    "layout":          "rfc6962-sorted/1",
-                   "embedding_model": "bge-m3@1.5" }
+                   "embedding_model": "bge-m3@1.5",
+                   "index_digest":    "sha256:III2" }
   },
   "created_at": "2026-07-24T10:15:00Z",
   "parents":    ["sha256:PREVIOUS_SNAPSHOT"],
@@ -945,11 +973,12 @@ is.
 }
 \end{verbatim}
 
-Each module reference carries the root (its logical identity), the digest of the
-composition document (so the version can be reopened, not merely verified), the
-block count, the layout, and, when a vector index travels with the module, the
-embedding model and version that produced it
-(Section~\ref{sec:indices-derived}).
+Each module reference carries the root (its logical identity), the digest of
+the composition document (so the version can be reopened, not merely
+verified), the block count, the layout, and, when a vector index travels with
+the module, the embedding model and version that produced it together with the
+digest of the index payload, which is what places a travelling index inside
+the signed bytes (Section~\ref{sec:indices-derived}).
 
 Five properties do most of the work in the rest of the paper.
 
@@ -1072,6 +1101,17 @@ than a protocol operation, because deletion from an approximate
 nearest-neighbour structure is engine-specific and lossy. What the protocol
 requires is narrower and checkable: a published artifact MUST NOT claim an index
 it did not build over the composition it ships.
+
+A fourth rule makes the binding hold against an adversarial registry rather
+than a careless publisher. When an index travels, the snapshot names the
+digest of the index payload alongside the embedding model
+(Section~\ref{sec:snapshot}), which places the index inside the signed bytes,
+and a consumer MUST reject a travelling index whose payload does not hash to
+the digest its snapshot names. Without this the index would be the one
+component of the artifact covered by no signature, and whoever controls a
+registry or mirror could substitute it: nothing fabricated would surface,
+since every returned block still verifies, but what surfaces would be theirs
+to choose (Section~\ref{sec:query-guarantees}).
 
 The separation is also representational: a block carries meaning symbolically,
 in its text and its explicit relations to other blocks, while learned
@@ -1336,6 +1376,7 @@ manifest  artifactType: application/vnd.gaussia.boltzmann.brain.v1+json
     semantic   -> sha256:CCC
     procedural -> sha256:DDD
     provenance -> sha256:EEE
+    history    -> sha256:FFF   annotations: snapshot-count
     (vector index layers, when one travels)
 \end{verbatim}
 The OCI manifest is small, and downloading it does not imply downloading any
@@ -1346,6 +1387,24 @@ conversion, and the trust root arrives with every install
 Signatures are deliberately absent from this listing: they are published as
 separate artifacts referring to the manifest, for reasons
 Section~\ref{sec:publish-signed} gives.
+
+\paragraph{The history layer.}
+A snapshot names its parents by digest, and several rules of
+Section~\ref{sec:authenticity} run by walking that chain: finding the
+trust-root revision in force, checking a quorum, computing the difference that
+decides required scopes. An artifact that carried only its head would name
+documents no consumer can resolve, leaving those rules checkable by nobody but
+the publisher. A complete brain therefore carries a \emph{history layer}: the
+snapshot documents of the head's first-parent ancestry, in canonical bytes,
+together with the composition documents they reference. Compositions travel
+because required scopes are computed from differences between compositions;
+without a parent's compositions, every pulled commit is undecidable between an
+ingest and a canonical drop. Ancestor \emph{blocks} do not travel. A publisher
+of a complete brain MUST include the ancestry back to the genesis snapshot;
+the cost is small, since a snapshot document is a few hundred bytes and
+compresses well against its near-identical siblings, and
+Section~\ref{sec:verification} states what a verifier reports when the chain
+it can resolve stops short.
 
 \paragraph{Media types.}
 Two clients that disagree on media types cannot pull each other's brains, so these are normative here
@@ -1362,6 +1421,7 @@ Two clients that disagree on media types cannot pull each other's brains, so the
 Artifact type & \texttt{application/vnd.gaussia.boltzmann.brain.v1+json} \\
 Config (snapshot) & \texttt{application/vnd.gaussia.boltzmann.snapshot.v1+json} \\
 Module layer & \texttt{application/vnd.gaussia.boltzmann.module.\{type\}.v1.tar+gzip} \\
+History layer & \texttt{application/vnd.gaussia.boltzmann.history.v1+tar+gzip} \\
 Vector index layer & \texttt{application/vnd.gaussia.boltzmann.index.vector.v1+bin} \\
 Signature record & \texttt{application/vnd.gaussia.boltzmann.signature.v1+json} \\
 \bottomrule
@@ -1369,17 +1429,31 @@ Signature record & \texttt{application/vnd.gaussia.boltzmann.signature.v1+json} 
 \end{table}
 
 A module layer is a tar archive holding the module's composition document and
-its block bytes. Both the tar and the compression stream MUST be written
-deterministically, so that two clients packing the same module produce
-byte-identical layers. Without that, registry deduplication silently stops
-working and every publish transfers blobs the registry already holds. Gzip is
+its block bytes. An implementation MUST NOT repack a module whose composition
+is unchanged: it MUST reuse the previous layer digest, which is what keeps
+registry deduplication working across publishes. Packing SHOULD be
+deterministic within an implementation, so repeated packs of one composition
+yield one digest; byte-identical layers across implementations are
+deliberately not required, because the formats do not permit requiring them.
+RFC 1951 leaves block boundaries and match strategy to the compressor, and RFC
+1952 leaves header fields implementation-dependent, so two conforming encoders
+legitimately produce different streams for the same
+input~\cite{rfc1951,rfc1952}. The reference implementation packs with the PAX
+format, zeroed timestamps, sorted entries, and a pinned gzip level. Gzip is
 specified rather than a denser codec because it is universally available: a
 client that needed an extra dependency to read a published brain would be
 trading portability for a few percent.
 
 \paragraph{Annotations.}
-The manifest carries what a consumer needs to decide \emph{before}
-downloading (Table~\ref{tab:annotations}).
+The manifest carries what a consumer needs to decide \emph{before} downloading
+(Table~\ref{tab:annotations}). Annotations are unauthenticated hints: nothing
+signs a manifest, so every annotation is writable by whoever controls the
+registry. They MAY drive the decision to transfer, which is their purpose, but
+a consumer MUST re-verify any value it acted on against the config blob and
+the downloaded bytes, and MUST NOT base a trust decision on an annotation
+alone. The \texttt{trust-root} comparison against a pin
+(Section~\ref{sec:bootstrap}) is a pre-download courtesy; the comparison that
+counts is against the trust root inside the config.
 
 \begin{table}[htbp]
 \centering
@@ -1430,15 +1504,21 @@ Selection is only efficient if each module is a separate OCI blob or artifact.
 If everything is mixed into a single file, the whole file must be downloaded.
 \end{callout}
 
-\subsection{Incremental update}
+\subsection{Update granularity}
 
-If only the semantic module changes, the new manifest can reuse the digests of
-the remaining modules. The consumer downloads only the new semantic blob;
-inside it, the Merkle root reveals which logical blocks changed.
+The unit of transfer is the module. If only
+the semantic module changes, the new manifest reuses the digests of the
+remaining modules, and the consumer downloads only the new semantic blob. It
+downloads that blob whole, however small the change inside it: what is
+incremental at the block level is local storage and differencing, not
+transfer. Once the blob is on disk, comparing Merkle roots identifies exactly
+which logical blocks changed. This version claims no finer transfer
+granularity; per-block blobs would trade one download for thousands of
+registry round-trips, and modules are where selective installation lives.
 
 \begin{table}[htbp]
 \centering
-\caption{An incremental update touches only the changed module's digest.}
+\caption{An update touches only the changed module's digest.}
 \label{tab:incremental}
 \begin{tabular}{lcccc}
 \toprule
@@ -1558,7 +1638,14 @@ digests commit to the whole prior history, since changing any ancestor would
 change its digest and break the chain leading to the signed value. A conforming
 implementation MUST therefore attach signatures to snapshots, and MUST NOT
 require a signature over any other object to establish authorship.
-Signing the head is sufficient; signing every historical snapshot is OPTIONAL.
+Signing the head is sufficient for content: the parent digests already commit
+to every ancestor's composition, so re-signing history adds nothing to
+integrity, and signing every historical snapshot is OPTIONAL. Authority is the
+exception. A trust-root revision is legitimate only through the
+\texttt{govern} signatures that approved it (Section~\ref{sec:trust-root}), so
+the signature records covering every trust-root revision in the ancestry MUST
+travel with the brain, or the quorum rule becomes uncheckable by anyone
+downstream.
 
 Because the snapshot names each module's Merkle layout and each block envelope
 names its serialization, a signature commits to \emph{how} the values were
@@ -1654,8 +1741,9 @@ object and therefore changes the commit's identity when it is re-signed. Keeping
 
 \begin{itemize}[leftmargin=1.4em]
   \item Snapshot identity does not depend on whether, or by whom, a snapshot was
-  signed. Two parties who assembled the same knowledge still compute the same
-  snapshot digest.
+signed. The converse constraint follows from \texttt{labels} living inside the
+document: re-labelling produces a new snapshot identity, and existing
+signatures do not carry over.
   \item A snapshot committed locally without a signature becomes signed at
   publication \emph{without changing identity}, which matters because
   Section~\ref{sec:local-state} already separates local state from publication.
@@ -2034,9 +2122,15 @@ The OCI Referrers API exists for this~\cite{oci_referrers}. A signature is
 published as a separate artifact whose \texttt{subject} is the brain's manifest,
 which is how signature attestations already
 work~\cite{newman2022sigstore, torres2019intoto}, so signatures accumulate
-\emph{around} an artifact without touching it. A conforming implementation MUST
-publish signatures this way, so that registry tooling can discover them without
-implementing this protocol.
+\emph{around} an artifact without touching it. A conforming implementation MUST publish signatures this way, so that registry
+tooling can discover them without implementing this protocol. The Referrers
+API is not universally present: the OCI distribution specification requires
+registries to support only the pull category, and instructs clients that meet
+a registry without the API to fall back to an image index at a tag derived
+from the subject digest, the referrers tag schema~\cite{oci_referrers}. An
+implementation MUST implement that fallback, for publication and for
+discovery; a publisher that skipped it on such a registry would appear to
+succeed and leave the brain discoverable as unsigned.
 
 But referrers exist only inside an OCI registry, and a signature that lives
 only there does not survive export to a tarball, a repository, or a disk. So
@@ -2085,6 +2179,25 @@ rather than as one boolean.
   exists; and confirm that the key is neither retired nor compromised at that
   position.
 \end{enumerate}
+
+\paragraph{Authority is a property of the chain.}
+The authenticity check does not stop at the head. A verifier MUST NOT report a
+snapshot as authorized unless the first-parent chain resolves from the head
+back to its anchor, which is the pinned trust root where one exists and the
+genesis on first contact; every trust-root revision along that chain carries
+the \texttt{govern} quorum its predecessor required; and every ancestor's
+difference from its own first parent was covered by the scopes its signer
+held. The last clause makes the forward propagation of rejection in
+Section~\ref{sec:cases} normative rather than narrative: a head whose ancestry
+contains an unauthorized change is unauthorized, however clean the head itself
+looks, and without this rule whoever merges could launder a privileged change
+by measuring their diff against a branch that had already made it. When the
+chain cannot be resolved that far, because history was withheld or a mirror
+truncated it, the verifier MUST report \emph{chain truncated}
+(Table~\ref{tab:failures}): integrity is intact, and authority above the
+deepest resolvable snapshot is undecidable. A partial install does not weaken
+the rule, because the history layer carries documents rather than modules, so
+ancestry resolves regardless of which modules are held.
 
 Keeping them distinct matters in practice. A consumer with no trust anchor can
 still verify integrity completely, which is the zero-configuration case that
@@ -2448,10 +2561,12 @@ grouped by what a caller can do about them.}
 \quad Compromised key       & The key's signatures are withdrawn from a recorded position onward. \\
 \quad Quorum failure        & A trust-root revision lacks the required \texttt{govern} signatures from the previous revision. \\
 \quad Trust root mismatch   & The trust root does not match the pinned digest. \\
+\quad Chain truncated       & The first-parent ancestry cannot be resolved back to the anchor; authority above the deepest resolvable snapshot is undecidable, integrity is unaffected. \\
 \midrule
 \multicolumn{2}{@{}l}{\emph{Reconciliation} (Section~\ref{sec:divergence})} \\
 \quad Divergence            & The remote is not an ancestor of the local snapshot. \\
 \quad No common ancestor    & Two histories share no ancestor, so no three-way merge is defined. \\
+\quad Multiple merge bases & Criss-cross histories yield more than one best common ancestor, so the three-way merge is not determined. \\
 \quad Governance conflict   & The histories being reconciled carry different trust roots. \\
 \bottomrule
 \end{tabularx}
@@ -2644,6 +2759,7 @@ answer appropriate for the task.
 \end{enumerate}
 
 \subsection{Query planning and guarantees}
+\label{sec:query-guarantees}
 
 Step three above hides a query planner. By Principle~7 a query is declarative:
 the caller expresses intent (a query, optional filters over memory type, class, or recency, and optional hints such as a retrieval mode or a result
@@ -2662,10 +2778,21 @@ and a retrieval score, never prose; every returned block must be verified
 against the installed snapshot by hash and membership; and no single index may
 be treated as authoritative. The fusion method, ranking weights, graph
 expansion depth, and any adaptive intent classification are deliberately left
-to the implementation. A consequence worth stating explicitly is that the
-protocol guarantees \emph{verifiability, not identical ranking}: two conforming
-implementations may return the same verifiable set of blocks in a different
-order, because vector search is approximate and ranking is tunable.
+to the implementation. The guarantee has a name and a boundary. What this contract delivers is
+\emph{soundness}: every returned block is genuinely in the installed snapshot,
+and a consumer can re-check the claim, because hash and membership
+verification recompute from the bytes. What it does not deliver is
+\emph{completeness}: no retrieval mode, \texttt{exact} resolution included,
+promises that everything in the snapshot satisfying the query was returned,
+and no mechanism in this protocol lets a consumer detect that a relevant block
+was withheld; the \texttt{truncated} field of the Evidence Bundle is a
+responder's assertion, not a check. Ranking sits inside the same boundary: the
+protocol guarantees \emph{verifiability, not identical ranking}, and two
+conforming implementations may return the same verifiable set of blocks in a
+different order, because vector search is approximate and ranking is tunable.
+Filters sharpen the distinction rather than escape it: a filter MUST be
+honored on what is returned, and honoring it says nothing about what was
+withheld.
 
 \paragraph{The request.}
 A query separates three things: the terms, the conditions that narrow the
@@ -3114,18 +3241,28 @@ parents as merged-in history and MUST NOT derive any authorization from them.
 
 This is a genuine advantage over version control. Git merges lines of text;
 here what is merged is a set of immutable, content-addressed blocks. Nothing is ever ``the same block, slightly modified'':
-modifying a block yields a different identity (Section~\ref{sec:blocks}). A
-textual conflict is therefore not representable, and reconciliation of a single
-module is set arithmetic over identifiers, which converges regardless of the
-order the sides are combined in~\cite{shapiro2011crdt}.
+modifying a block yields a different identity (Section~\ref{sec:blocks}). A textual conflict is therefore not representable, and reconciliation of a
+single module is set arithmetic over identifiers: for a fixed ancestor the
+merge is symmetric in the two sides, so which brain performs a reconciliation
+does not change its result. What the result does depend on is the ancestor,
+and its selection is specified below.
 
 What makes it three-way rather than two-way is the common ancestor, and this is
 the part that cannot be skipped. Without it, a block present in one composition
 and absent from the other is ambiguous between ``they added it'' and ``I dropped
-it'', and those demand opposite outcomes. A conforming implementation MUST
-identify a common ancestor of the snapshots being reconciled, and MUST refuse
-with a distinguishable failure when the two histories share none
-(Table~\ref{tab:failures}).
+it'', and those demand opposite outcomes. A conforming implementation MUST identify the best common ancestors of the
+snapshots being reconciled: the common ancestors that are not themselves
+ancestors of another common ancestor. When the histories share none, it MUST
+refuse with a distinguishable failure (Table~\ref{tab:failures}). When they
+share more than one, which criss-cross histories produce, it MUST refuse with
+a distinguishable failure of its own: the merge yields different results for
+different ancestors, so an implementation that silently picked one would be
+choosing the outcome, and Git documents the same selection as unspecified for
+exactly this reason~\cite{gitmergebase}. The operator resolves the ambiguity
+explicitly, for example by first reconciling the ancestors themselves, so that
+a later reconciliation has a unique base. A reconciliation proceeds only when
+the best common ancestor is unique, and that ancestor is the $B$ of
+Equation~\ref{eq:merge}.
 
 For each module, with $B$ the ancestor's composition and $X$, $Y$ the two
 compositions being reconciled, the result is
@@ -3369,11 +3506,11 @@ already specified.
   URL. This protocol defines no notification mechanism, in the same way version
   control defines no pull requests. The snapshot is the protocol-level artifact;
   the workflow around it belongs to the forge.
-  \item \textbf{The maintainer fetches it.} Because everything is
-  content-addressed, the transfer is only the delta: the contributor's brain
-  shares every block reachable from \texttt{S7} with the maintainer's, byte for
-  byte, so only genuinely new blocks and the new snapshot move. A contribution of
-  forty blocks transfers forty blocks, not a brain.
+  \item \textbf{The maintainer fetches it.} Because everything is content-addressed, the transfer is bounded by the delta:
+modules the contribution did not touch keep their digests and do not move, and
+within a fetched module every block reachable from \texttt{S7} is already
+present locally, byte for byte. A contribution of forty semantic blocks costs
+a fetch of the changed modules, not a brain.
   \item \textbf{Nothing has changed yet.} The maintainer holds two histories
 locally while the published brain is untouched: \texttt{fetch} retrieves a
 remote history without moving the local pointer, which is why it is separate
@@ -3480,9 +3617,18 @@ Publish a fabricated brain under someone else's name &
   Being accepted on first contact by a consumer with no pin
   (Section~\ref{sec:bootstrap}). \\
 Control the registry &
-  Fabricating state: signatures and roots verify offline. &
+  Fabricating state: signatures and roots verify offline. Substituting a
+  travelling index: its digest is named by the signed snapshot
+  (Section~\ref{sec:indices-derived}). &
   Withholding newer snapshots and serving a stale signed one
   (Section~\ref{sec:freshness}). \\
+Answer queries over a brain it holds &
+  Fabricating results: every returned block must verify by hash and
+  membership against the installed snapshot
+  (Section~\ref{sec:query-guarantees}). &
+  Suppressing results: completeness is not guaranteed, and a withheld block
+  leaves no trace in a verified Evidence Bundle
+  (Section~\ref{sec:query-guarantees}). \\
 Steal one authorized private key &
   Revising the trust root, when the quorum exceeds one
   (Section~\ref{sec:trust-root}). &
@@ -3619,6 +3765,9 @@ an implementation SHOULD make each of them the default rather than an option:
   (Section~\ref{sec:injection}).
   \item Treat a successful verification as saying nothing about freshness
   (Section~\ref{sec:freshness}).
+  \item Treat a verified Evidence Bundle as sound, never as complete: absence
+  of evidence in a result is not evidence of absence in the brain
+  (Section~\ref{sec:query-guarantees}).
 \end{itemize}
 
 % ===========================================================================
@@ -3679,9 +3828,10 @@ places where a divergence would be invisible:
   a key with a \texttt{compromised\_from} record, and a trust-root revision that
   fails the quorum rule (Section~\ref{sec:authenticity}).
   \item \textbf{Reconciliation}: an ancestor composition and two branch
-  compositions, with the set Equation~\ref{eq:merge} must produce, including the
-  case where one side dropped what the other retained
-  (Section~\ref{sec:set-merge}).
+compositions, with the set Equation~\ref{eq:merge} must produce, including the
+case where one side dropped what the other retained, and a criss-cross history
+with two best common ancestors whose reconciliation MUST be refused
+(Section~\ref{sec:set-merge}).
 \end{itemize}
 
 These vectors MUST be plain data, readable without executing any implementation
