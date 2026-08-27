@@ -1069,7 +1069,10 @@ the composition document (so the version can be reopened, not merely
 verified), the block count, the layout, and, when a vector index travels with
 the module, the embedding model and version that produced it together with the
 digest of the index payload, which is what places a travelling index inside
-the signed bytes (Section~\ref{sec:indices-derived}).
+the signed bytes (Section~\ref{sec:indices-derived}). A module whose
+composition still names destroyed bytes additionally lists those identities in
+a \texttt{tombstones} member, which is what lets a verifier see a redaction in
+the difference between snapshots (Section~\ref{sec:forgetting}).
 
 Five properties do most of the work in the rest of the paper.
 
@@ -2016,8 +2019,8 @@ its first parent, never taken from what the signature claims.}
   A non-canonical composition changed. \\
 \texttt{drop:canonical} & Excluding canonical evidence, with its cascade. &
   The canonical composition lost blocks. \\
-\texttt{redact}         & Destroying bytes a retained root still names. &
-  Blocks became tombstoned. \\
+\texttt{redact}         & Destroying bytes a retained root still names. & A
+module's \texttt{tombstones} list grew. \\
 \texttt{govern}         & Revising the trust root. &
   The trust root digest changed. \\
 \texttt{propose}        & Offering a snapshot for someone else's consideration. &
@@ -3390,13 +3393,33 @@ Redaction is different: it punches a hole in a composition that still names the
 block. The Merkle DAG references identities, not bytes, so deleting the bytes
 behind a leaf changes no hash and membership still verifies, but reconstruction
 of that one block is forfeited. A conforming implementation must report which
-blocks of a snapshot are resolvable and which are tombstoned, so that a removed
-block is never indistinguishable from a corrupted one. Provenance is again the
-home for that record.
+blocks of a snapshot are resolvable and which are tombstoned, so that a
+removed block is never indistinguishable from a corrupted one. Provenance is
+again the home for that record. The tombstone set is also part of the snapshot
+itself: a module reference whose composition still names destroyed bytes MUST
+list those identities in its \texttt{tombstones} member
+(Section~\ref{sec:snapshot}). That is what makes redaction visible to the
+difference a verifier computes, and therefore what makes the \texttt{redact}
+scope checkable; without it, destroying bytes changes no hash, the diff shows
+nothing, and the scopes table would demand a scope no difference could ever
+require. A redaction consequently produces a successor snapshot, like every
+other change of state. C2PA's redaction of hash-referenced assertions is the
+deployed precedent for the shape, down to recording what was removed in the
+claim itself~\cite{c2pa_spec}.
 
-Two limitations of redaction deserve stating. A hash of low-entropy content is
-not anonymous, so confirming a guess may still be possible when the
-\texttt{block\_id} is kept. And erasure does not propagate by itself across
+Two limitations remain, and the first is stronger than ``not anonymous''. A
+retained \texttt{block\_id} is an unsalted hash over a standardized five-key
+envelope, so for low-entropy payloads under a known schema the preimage space
+is enumerable, and an attacker holding the tombstone can recover the destroyed
+value by exhausting it; C2PA documents the same attack against its hashed
+assertions and mitigates it with a per-assertion random salt~\cite{c2pa_spec}.
+This design does not adopt the salt, because identity is its spine: a salted
+block is a different block, re-registering an identical original would stop
+being a no-op, and deduplication and structural sharing would fail exactly
+where they matter (Section~\ref{sec:modules}). The consequence is stated
+instead: redaction of low-entropy content bounds disclosure rather than
+preventing it, and content whose later confirmation must be impossible should
+not be registered in cleartext in a brain built to be distributed. And erasure does not propagate by itself across
 already-pulled copies: the protocol can publish a revocation, but a distributed
 brain can only signal destruction, not guarantee it. Neither limitation applies
 to an ordinary drop of wrong semantic or procedural knowledge, because the new
