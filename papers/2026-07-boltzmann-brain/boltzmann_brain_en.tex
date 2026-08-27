@@ -1632,6 +1632,22 @@ fast-forwards. If it is not, the two brains have diverged, and the
 implementation MUST refuse the publish and report where the histories parted,
 rather than overwrite.
 
+\paragraph{The same comparison runs on pull.}
+The comparison is not the publisher's alone. On \texttt{pull}, when the
+consumer already holds a head for this brain, an implementation MUST compare
+the served head against it. If the served head is a strict ancestor of the
+held one, the remote has walked backward, and the implementation MUST refuse
+to adopt it, or require an explicit override, and MUST report a
+\emph{rollback}, distinguishable from a divergence and from any integrity
+failure (Table~\ref{tab:failures}). The state this check needs is already
+mandated: \emph{Origin} records the snapshot the remote was on at pull time,
+and the history layer resolves the ancestry. A consumer that pruned its local
+history below the served head cannot decide the question and MAY warn
+instead, the same undecidability the chain-truncated failure names. What the
+check buys is bounded in Section~\ref{sec:freshness}: it does not detect
+withholding from a newcomer; it makes walking a returning reader backward
+detectable with no party outside the artifact.
+
 Detecting divergence is a reader's duty and belongs here; deciding what to do
 next is a separate question, and Section~\ref{sec:divergence} answers it,
 including the partial install that cannot otherwise be published back
@@ -2711,7 +2727,10 @@ already validated; governance walked backward. \\
 \quad Chain truncated       & The first-parent ancestry cannot be resolved back to the anchor; authority above the deepest resolvable snapshot is undecidable, integrity is unaffected. \\
 \midrule
 \multicolumn{2}{@{}l}{\emph{Reconciliation} (Section~\ref{sec:divergence})} \\
-\quad Divergence            & The remote is not an ancestor of the local snapshot. \\
+\quad Divergence            & The remote is not an ancestor of the local
+snapshot. \\ \quad Rollback              & The served head is a strict
+ancestor of the head this consumer already holds; the remote walked backward.
+\\
 \quad No common ancestor    & Two histories share no ancestor, so no three-way merge is defined. \\
 \quad Multiple merge bases & Criss-cross histories yield more than one best common ancestor, so the three-way merge is not determined. \\
 \quad Governance conflict   & The histories being reconciled carry different trust roots. \\
@@ -3860,8 +3879,17 @@ matches the pin, and the consumer is nonetheless reading a brain that was
 current months ago, possibly one from before a drop that removed knowledge for
 legal reasons.
 
-Nothing in this version detects that, and a consumer MUST NOT infer freshness
-from a successful verification. The two known answers are expiring metadata,
+That exposure splits in two, and only one half is irreducible. Against a
+returning consumer, one that already holds a newer head, serving an older one
+is a rollback, and Section~\ref{sec:local-state} requires refusing it: the
+ancestry the consumer holds is the evidence, and no party outside the artifact
+is needed. Revocation is where this bites, because a
+\texttt{compromised\_from} record published in a newer head disappears from
+view exactly when a consumer is walked backward past it; revocation is only as
+fresh as the head a consumer accepts. What remains irreducible is first
+contact, the consumer that held nothing: nothing in this version detects
+withholding there, and a consumer MUST NOT infer freshness from a successful
+verification. The two known answers for that half are expiring metadata,
 where a signed statement asserts a validity window and its absence is itself a
 signal, as in The Update Framework's timestamp role~\cite{samuel2010tuf}, and an
 append-only transparency log, where a consumer can check that the snapshot it was
@@ -4058,8 +4086,10 @@ Six questions remain, smaller and better specified than the two just closed.
 
 \begin{itemize}[leftmargin=1.4em]
   \item \textbf{Freshness.} Everything verifies offline, so a hostile registry
-  cannot fabricate state, but it can withhold: serve an older, legitimately
-  signed snapshot indefinitely. Signing does not fix this. The known answers,
+cannot fabricate state, but it can withhold from a consumer that has seen
+nothing newer. Serving a returning consumer an ancestor of what it already
+holds is a rollback and is refused (Section~\ref{sec:local-state}), so what
+remains open is first contact. Signing does not fix this. The known answers,
   expiring metadata~\cite{samuel2010tuf} and an append-only transparency
   log~\cite{rfc9162}, both require a party outside the artifact, which is why
   neither is adopted here without deciding what to trade for it. This is the
