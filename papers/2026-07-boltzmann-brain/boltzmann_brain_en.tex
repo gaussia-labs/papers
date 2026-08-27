@@ -1069,7 +1069,11 @@ the three-level separation exists to keep those straight.
 The \texttt{trust\_root} member holds the keys authorized to sign for this
 brain and the scopes each one holds. It lives here rather than in a module or
 a layer because it MUST reach every install, complete or partial
-(Section~\ref{sec:trust-root}).
+(Section~\ref{sec:trust-root}). The member MAY be absent, and absence and
+emptiness are equivalent: both mean a brain with no authorized keys, the
+zero-configuration case of Section~\ref{sec:integrity-total}. What neither
+means is deferral, and Section~\ref{sec:genesis} states the consequence of
+starting without one.
 
 \paragraph{Its timestamp decides nothing.}
 The \texttt{created\_at} member is descriptive. It is written by whoever built
@@ -2158,8 +2162,19 @@ carries fewer signatures than the quorum it declares.
 A genesis snapshot MAY be unsigned, and a brain whose genesis is unsigned is a
 brain with no authorship from the outset. That is the zero-configuration case of
 Section~\ref{sec:integrity-total}, and it remains fully verifiable for integrity.
-What it cannot later acquire is a signed history: signatures attach to snapshots,
-and the snapshots that were committed unsigned stay unsigned.
+What it cannot later acquire is a signed history: signatures attach to
+snapshots, and the snapshots that were committed unsigned stay unsigned. The
+stronger consequence runs forward. A trust-root revision draws its quorum from
+the previous revision (Section~\ref{sec:trust-root}), and a chain whose
+genesis carried no trust root has no revision to draw from, ever: governance
+cannot be adopted later, and a snapshot that introduces a trust root onto such
+a chain MUST be reported as a quorum failure, because no quorum could have
+approved it and every authority downstream of it is asserted rather than
+granted. Acquiring governed authorship means creating a new brain whose
+genesis carries the trust root. An implementation SHOULD warn at \texttt{init}
+when no trust root is supplied: trying the protocol unsigned and adopting
+signatures once the project matters is the natural path, and it is exactly the
+path this closes.
 
 \subsection{Bootstrap: the one thing that comes from outside}
 \label{sec:bootstrap}
