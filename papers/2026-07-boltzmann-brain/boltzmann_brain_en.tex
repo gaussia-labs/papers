@@ -969,10 +969,9 @@ unrelated roots. This is what a consumer walks to tell whether a remote brain is
 ahead of, behind, or diverged from a local one
 (Section~\ref{sec:local-state}). A linear history carries one entry, which is
 the ordinary case; a first snapshot carries none; a reconciliation of two
-histories carries two or more (Section~\ref{sec:divergence}). The list is
-ordered, and the \emph{first} parent is the history a reconciliation was
-performed onto: every rule elsewhere in this document that speaks of ``the
-parent'' of a snapshot means that one.
+histories carries two or more (Section~\ref{sec:divergence}). The list is ordered, and the \emph{first} parent is the one every rule
+elsewhere in this document means by ``the parent''
+(Section~\ref{sec:parents-list}).
 
 \paragraph{It is a subset, not necessarily the whole.}
 A brain may hold only some modules, because selective installation is the point
@@ -2825,17 +2824,13 @@ separately in Section~\ref{sec:erasure-verifiability}.
 
 \subsection{What biology suggests}
 
-Forgetting in nervous systems is a regulated process, not a storage failure.
-Microglial pruning eliminates connections that are not
-reinforced~\cite{paolicelli2011pruning}, active forgetting is driven by
-dedicated molecular machinery~\cite{davis2017forgetting}, and engram studies
-treat inaccessibility as adaptive plasticity rather than
-erasure~\cite{ryan2022forgetting}. Cognitive psychology separates the
-availability of a trace from its accessibility~\cite{bjork1992disuse}. The
-architectural reading is that exclusion from the current composition is the
-default, that reclamation of what no retained version needs is a background
-process, and that destroying evidence is a rare, policy-bound exception rather
-than the ordinary cleanup path.
+Section~\ref{sec:inspiration} took forgetting to be a regulated process rather
+than a storage failure, and cognitive psychology separates the availability of
+a trace from its accessibility~\cite{bjork1992disuse}. The architectural
+reading is that exclusion from the current composition is the default, that
+reclamation of what no retained version needs is a background process, and
+that destroying evidence is a rare, policy-bound exception rather than the
+ordinary cleanup path.
 
 \subsection{Drop: excluding blocks from a module}
 \label{sec:drop}
@@ -2900,20 +2895,16 @@ current composition, and neither do interpretations that depended only on it.
 \paragraph{The cascade does not weigh evidence, and cannot.}
 The cascade excludes every derived block that cited the dropped evidence, without
 distinguishing a block supported by one source from a block supported by three.
-The obvious refinement, dropping a derived block only when it loses \emph{all} of
-its evidence, is not implementable here, and the reason is worth recording
-because the refinement looks reasonable until it is attempted. Citations live in
-the payload, and therefore inside \texttt{block\_id}
+The obvious refinement, dropping a derived block only when it loses \emph{all}
+of its evidence, is not implementable here. Citations live in the payload, and therefore inside \texttt{block\_id}
 (Section~\ref{sec:blocks}). A semantic block citing three sources that loses one
 cannot ``keep the other two'': a block with two citations is a different block,
 with a different identity. A block whose citation set no longer holds cannot
 stay, whatever fraction of that set survived.
 
-What remains open is narrower than it first appears. Rebuilding such a block
-against its surviving evidence currently requires a full round trip through the
-external model, even though the surviving evidence has not changed. Whether the
-protocol should offer a cheaper deterministic path for that case is stated as
-open in Section~\ref{sec:conclusion}.
+Rebuilding such a block against its surviving evidence therefore costs a full
+round trip through the external model, and whether a cheaper deterministic
+path should exist is stated as open in Section~\ref{sec:conclusion}.
 
 \paragraph{Batch invalidation.}
 Because provenance records the producer of each derived block (model, pipeline,
@@ -3083,9 +3074,8 @@ forbidden by default because excluding evidence forfeits re-derivation from that
 source, which Principle~2 makes a privileged act. Both redaction settings are
 forbidden by default because redaction is the mechanism for law and safety, not
 the cleanup path, and a deployment that has not decided which content is
-redactable has not decided that it is; the episodic setting is separate precisely
-because it is the module where the question is most likely to arise and least
-likely to have been considered. The episodic module can never appear among the
+redactable has not decided that it is; the episodic setting is separate because it is the module where the question
+is most likely to arise and least likely to have been considered. The episodic module can never appear among the
 droppable modules: it is append-only by protocol, not by policy, and no
 configuration may make it otherwise.
 
@@ -3111,10 +3101,8 @@ section defines the reconciliation the refusal was standing in for.
 \label{sec:parents-list}
 
 A snapshot names its predecessors in \texttt{parents}, a list
-(Section~\ref{sec:snapshot}). That is the whole structural change: a field goes
-from scalar to list, and no new document is introduced. A linear history is the
-ordinary case and carries one entry; a root snapshot carries none; a
-reconciliation carries two or more.
+(Section~\ref{sec:snapshot}). That is the whole structural change: a field goes from scalar to list, and no
+new document is introduced.
 
 Order is significant in exactly one way. The \emph{first parent} is the history
 the reconciliation was performed onto, and every rule in this document that
@@ -3127,9 +3115,8 @@ parents as merged-in history and MUST NOT derive any authorization from them.
 \subsection{Why the structural part is nearly free}
 \label{sec:set-merge}
 
-This is a genuine advantage over version control rather than a coincidence. Git
-merges lines of text; here what is merged is a set of immutable,
-content-addressed blocks. Nothing is ever ``the same block, slightly modified'':
+This is a genuine advantage over version control. Git merges lines of text;
+here what is merged is a set of immutable, content-addressed blocks. Nothing is ever ``the same block, slightly modified'':
 modifying a block yields a different identity (Section~\ref{sec:blocks}). A
 textual conflict is therefore not representable, and reconciliation of a single
 module is set arithmetic over identifiers, which converges regardless of the
@@ -3166,17 +3153,16 @@ that kind belongs.
 
 \paragraph{The result is a candidate, not a commit.}
 Equation~\ref{eq:merge} is applied per module and is individually correct in
-each, which is precisely why it is not sufficient. The invariants this
-architecture rests on run \emph{between} modules, and a set operation never
-crosses that boundary. Section~\ref{sec:semantic-conflicts} is about what
-crosses it.
+each, which is why it is not sufficient: the invariants this architecture
+rests on run \emph{between} modules, and a set operation never crosses that
+boundary.
 
 \subsection{Merge, rebase, and squash are recording strategies}
 \label{sec:strategies}
 
-This inverts the intuition anyone brings from version control, and it is worth
-spelling out. In Git the three strategies differ both in how the result is
-computed and in how history is recorded: a rebase replays patches, and can
+This inverts the intuition anyone brings from version control. In Git the
+three strategies differ both in how the result is computed and in how history
+is recorded: a rebase replays patches, and can
 therefore land on a tree a merge would not have produced. Here a snapshot is a
 complete statement of composition rather than a patch, so there is nothing to
 replay sequentially, and all three produce the same set of blocks. What differs
@@ -3273,9 +3259,8 @@ would be destroying the audit ledger to tidy a chain.
 \label{sec:semantic-conflicts}
 
 Because no textual conflict is representable, the conflicts that remain are
-semantic, and there are few of them (Table~\ref{tab:conflicts}). One deserves
-walking through, because it is the case that proves reconciliation cannot be
-purely structural.
+semantic, and there are few of them (Table~\ref{tab:conflicts}). One proves
+that reconciliation cannot be purely structural.
 
 Branch~A drops canonical block $C$. Branch~B adds a semantic block derived from
 $C$. Each module's set arithmetic is individually correct: the drop is respected
@@ -3393,16 +3378,14 @@ already specified.
   byte, so only genuinely new blocks and the new snapshot move. A contribution of
   forty blocks transfers forty blocks, not a brain.
   \item \textbf{Nothing has changed yet.} The maintainer holds two histories
-  locally while the published brain is untouched. \texttt{fetch} is defined to
-  retrieve a remote history without moving the local pointer, which is the
-  operation this step needs and the reason it is separate from \texttt{pull}.
+locally while the published brain is untouched: \texttt{fetch} retrieves a
+remote history without moving the local pointer, which is why it is separate
+from \texttt{pull}.
   \item \textbf{The contribution is judged mechanically, before any decision.}
-  This is where the model departs usefully from version control. Reviewing a
-  pull request means reading a diff; here the incoming blocks are candidates, and
-  the validation of Section~\ref{sec:validation} applies unchanged. Every
-  incoming block emerges with a verdict, so the maintainer learns which parts of
-  a contribution fit before deciding anything, rather than inferring it by
-  reading.
+Reviewing a pull request means reading a diff; here the incoming blocks are
+candidates and the validation of Section~\ref{sec:validation} applies
+unchanged, so every incoming block emerges with a verdict and the maintainer
+learns which parts fit before deciding anything.
   \item \textbf{The maintainer incorporates it} under one of the strategies of
   Section~\ref{sec:strategies}, re-validating the result as
   Section~\ref{sec:semantic-conflicts} requires, and signs the resulting
