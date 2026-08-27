@@ -767,8 +767,8 @@ fragment. Its identifier is computed from its content:
 \begin{equation}
   \texttt{block\_id} = \mathrm{SHA\text{-}256}\bigl(\texttt{canonical\_serialization(envelope)}\bigr).
 \end{equation}
-If the content changes, a new block is born. The previous one may be kept for
-history, audit, or rollback.
+If the content changes, the result is a new block; the previous one may be
+kept for history, audit, or rollback.
 
 \paragraph{The envelope.}
 What is hashed is not the payload alone but an \emph{envelope} that carries
@@ -783,10 +783,10 @@ exactly five keys:
 }
 \end{verbatim}
 A conforming implementation MUST reject an envelope carrying any other key, or
-missing any of these. Binding the memory type and the schema version into the
-hash is what makes identity self-describing: the same payload read as an episode
-and as a semantic fact is two different blocks, and stored bytes can be decoded
-without consulting anything outside them.
+missing any of these. Binding the memory type and the schema version into the hash makes identity
+self-describing: the same payload read as an episode and as a semantic fact is
+two different blocks, and stored bytes can be decoded without consulting
+anything outside them.
 
 Everything derived, physical, or actor-dependent stays outside the envelope: the
 storage location, the index state, and the moment of registration are not part of
@@ -818,9 +818,9 @@ silently normalized.
 \subsection{Canonical serialization}
 \label{sec:serialization}
 
-Two clients that disagree on serialization compute different identifiers for the
-same knowledge, and then deduplication never triggers, structural sharing stops
-working, and two parties holding identical knowledge cannot tell that they do.
+Two clients that disagree on serialization compute different identifiers for
+the same knowledge, and then deduplication never triggers and two parties
+holding identical knowledge cannot tell that they do.
 The serialization is therefore normative, and it is named in every envelope so
 that a future one can coexist with it rather than replace it.
 
@@ -846,19 +846,18 @@ decimal as a string, or as an integer scaled by a documented factor.
 \subsection{Merkle DAG}
 \label{sec:merkle}
 
-On their own, blocks are just a bag of content-addressed units: each is
-addressable by its hash, but nothing names, verifies, or diffs a whole
-\emph{version} of the module. The Merkle DAG solves exactly this. It stores no
-meaning by itself; it maintains references by hash and produces a single root
-that commits to the exact set and structure of blocks in a version. That root
-\emph{is} the identity of the version, and it is what makes Principle~3
-(identifiable, verifiable, and reconstructible versions) concrete.
+On their own, blocks are a bag of content-addressed units: each is addressable
+by its hash, but nothing names, verifies, or diffs a whole \emph{version} of
+the module. The Merkle DAG stores no meaning by itself; it maintains
+references by hash and produces a single root that commits to the exact set
+and structure of blocks in a version. That root \emph{is} the identity of the
+version, and it makes Principle~3 concrete.
 
 \paragraph{How it works.}
 The leaves of the DAG are \texttt{block\_id}s (content hashes); each internal
 node hashes the hashes of its children; the root hashes down to everything
-below it. Changing any block changes its hash, which changes every ancestor up
-to the root. Three operations follow directly. \emph{Integrity} is checked by
+below it. Changing any block changes its hash, which changes every ancestor up to the
+root. Three operations follow. \emph{Integrity} is checked by
 recomputing hashes from the leaves up and comparing the root. \emph{Membership}
 of a single block is proven with the sibling hashes along its path to the root
 (a Merkle proof of size $O(\log n)$), without downloading the rest of the
@@ -895,11 +894,10 @@ that claim while looking correct in every single-writer test.
 The construction is named \texttt{rfc6962-sorted/1}, and that identifier travels
 with every composition and module reference. A client that meets a composition
 built under a layout it does not implement MUST refuse it rather than
-recompute a root that would not be comparable. The name keeps its historical
-form: RFC 9162 obsoletes RFC 6962 but defines the same tree, with the same empty
-hash, the same prefixes, and the same split, so a root computed under either
-reading is byte-identical. The version suffix is what moves if the construction
-ever does.
+recompute a root that would not be comparable. The name keeps its historical form: RFC 9162 obsoletes RFC 6962 but defines
+the same tree, with the same empty hash, the same prefixes, and the same
+split, so a root computed under either reading is byte-identical. The suffix
+moves if the construction ever does.
 
 \paragraph{What is persisted.}
 Only the sorted leaf list and the root are stored. Internal nodes are
@@ -914,19 +912,12 @@ referenced by more than one root. The structure is therefore a directed acyclic
 graph, as in Git's object store. This structural sharing is what makes
 incremental updates cheap (Section~\ref{sec:distribution}): a new version adds
 only the changed blocks and a new root, and reuses everything else by
-reference. What sharing guarantees is precisely this reuse of blocks, which are
-the bytes a consumer would otherwise have to transfer. How much of the DAG's
-internal structure above the leaves is also reused depends on the layout a
-conforming implementation chooses, and internal nodes carry no content of their
-own, being hashes of hashes.
+reference. What sharing guarantees is the reuse of blocks, which are the bytes a consumer
+would otherwise have to transfer; how much of the structure above the leaves
+is reused depends on the layout an implementation chooses, and internal nodes
+carry no content of their own.
 
-\begin{callout}[title=Example]
-\texttt{semantic-root v1} contains \texttt{K1}, \texttt{K2}, and \texttt{K3}.
-If \texttt{K2} is corrected, a new \texttt{K2$'$} is created and
-\texttt{semantic-root v2} references \texttt{K1}, \texttt{K2$'$}, and
-\texttt{K3}. \texttt{K2} is never modified in place, and \texttt{K1} and
-\texttt{K3} are shared between the two roots (Figure~\ref{fig:merkle}).
-\end{callout}
+
 
 \begin{figure}[t]
 \centering
@@ -966,17 +957,17 @@ is applied at two levels: blocks within a module, and modules within a brain.
 
 \paragraph{Storage-independent identity.}
 Because the root depends only on the blocks and their structure, it is a
-canonical identity of a knowledge state, independent of how that state is stored
-or transported. Two parties that assembled the same blocks obtain the same root
-and can verify they hold identical knowledge; the OCI digest, by contrast,
-identifies a particular physical file or manifest.
+canonical identity of a knowledge state, independent of how that state is
+stored or transported: two parties that assembled the same blocks obtain the
+same root. The OCI digest, by contrast, identifies a particular physical file
+or manifest.
 
 \subsection{The composition document}
 \label{sec:composition-doc}
 
-A Merkle root commits to a set of blocks but \emph{cannot be inverted back into
-it}. This is easy to overlook and structurally decisive: a version identified by
-its root alone can be verified and not reopened. Given a root, a client can
+A Merkle root commits to a set of blocks but \emph{cannot be inverted back
+into it}, so a version identified by its root alone can be verified and not
+reopened. Given a root, a client can
 confirm that a leaf list it already holds is the right one, but it cannot
 recover that list from the root. Something has to store the leaves.
 
@@ -1040,7 +1031,7 @@ block count, the layout, and, when a vector index travels with the module, the
 embedding model and version that produced it
 (Section~\ref{sec:indices-derived}).
 
-Five properties of this document do most of the work in the rest of the paper.
+Five properties do most of the work in the rest of the paper.
 
 \paragraph{It is the unit of atomic change.}
 Adding one semantic block also advances provenance, and a canonical drop can
@@ -1071,9 +1062,8 @@ treated as an empty module.
 
 \paragraph{Which level of hash identifies a snapshot.}
 The snapshot document is a transportable file, so its own identity is an OCI
-digest, not a fourth kind of hash (Section~\ref{sec:hashes}). It is made
-\emph{of} Merkle roots and is identified \emph{by} an OCI digest, and keeping
-those two straight is the whole point of the three-level separation.
+digest, not a fourth kind of hash (Section~\ref{sec:hashes}). It is made \emph{of} Merkle roots and identified \emph{by} an OCI digest, and
+the three-level separation exists to keep those straight.
 
 \paragraph{It carries the trust root.}
 The \texttt{trust\_root} member holds the keys authorized to sign for this brain
@@ -1120,40 +1110,36 @@ on whether it can be regenerated without a model. Structural indices (hash map,
 B\textsuperscript{+} tree, inverted, bitmap, and, when relations live on the
 blocks, the graph) are deterministic functions of the blocks and can be rebuilt
 cheaply by any client. The vector index is the exception: rebuilding it requires
-an embedding model, which a model-agnostic client does not carry. The vector
-index therefore travels with the module and records the embedding model and
-version that produced it, so that consumers can reproduce or compare it. This
-keeps the blocks as the single source of truth while acknowledging that one
-derived structure cannot be regenerated in isolation.
+an embedding model, which a model-agnostic client does not carry. The vector index therefore travels with the module and records the embedding
+model and version that produced it, so that consumers can reproduce or compare
+it.
 
-The same argument applies to a client that restarts. A structural index can be
-rebuilt from the installed blocks whenever it is needed, so losing it costs only
-the time to recompute it; the vector index cannot, and a client that holds it
-only in memory has lost it for good. An implementation must therefore persist the
+The same argument applies to a client that restarts: a structural index can be
+rebuilt whenever it is needed, while a client holding the vector index only in
+memory has lost it for good. An implementation must therefore persist the
 travelling index locally, alongside the module it belongs to, and must not
 republish a placeholder in its stead: an artifact whose layer claims a vector
 index and carries none is worse than one that omits the layer, because a consumer
 can detect the absence and cannot detect the emptiness.
 
 \paragraph{A travelling index MUST be bound to the composition it was built over.}
-Three requirements stated elsewhere in this document compose badly if this is
-left implicit. A travelling index cannot be rebuilt by a model-agnostic client,
-which is the only reason it travels. A drop rebuilds the module's indices from
-the new composition (Section~\ref{sec:drop}). And no operation in this protocol
-removes a single entry from an index, because indices are built and queried, never edited. Put together, an implementation that does the obvious thing
-publishes, after a drop, an index that still contains the representation of the
-dropped block.
+Three requirements elsewhere in this document compose badly if this is left
+implicit: a travelling index cannot be rebuilt by a model-agnostic client, a
+drop rebuilds the module's indices from the new composition
+(Section~\ref{sec:drop}), and no operation removes a single entry from an
+index, because indices are built and queried, never edited. An implementation
+that does the obvious thing therefore publishes, after a drop, an index that
+still contains the representation of the dropped block.
 
-Queries stay correct, because a hit that is no longer a member fails membership
-verification and is filtered out (Section~\ref{sec:query}). That is what makes
-this worse rather than better: it is not a retrieval bug, so nothing surfaces to
-be noticed, and the published artifact silently carries a learned representation
-of content that was deliberately excluded. For a drop motivated by law or safety
-that leaks precisely what the drop was meant to remove, and text embeddings
-recover enough of their input for the concern to be a practical one~\cite{morris2023embeddings}. This is the \emph{ordinary} path, not
-the exceptional one: Section~\ref{sec:forgetting} presents drop as the normal
-removal mechanism and redaction as the rare exception, and it is the common case
-that leaks.
+Queries stay correct, because a hit that is no longer a member fails
+membership verification and is filtered out (Section~\ref{sec:query}), and
+that is what makes it worse: nothing surfaces to be noticed, and the published
+artifact silently carries a learned representation of content that was
+deliberately excluded. For a drop motivated by law or safety that leaks what
+the drop was meant to remove, and text embeddings recover enough of their
+input for the concern to be a practical one~\cite{morris2023embeddings}. Drop
+is the \emph{ordinary} removal path (Section~\ref{sec:forgetting}), so it is
+the common case that leaks.
 
 Three rules close it. A travelling index MUST record the module root it was built
 over, so that staleness is detectable rather than invisible. An implementation
@@ -1169,17 +1155,13 @@ nearest-neighbour structure is engine-specific and lossy. What the protocol
 requires is narrower and checkable: a published artifact MUST NOT claim an index
 it did not build over the composition it ships.
 
-This separation has a representational reading. A block carries meaning in two
-portable, \emph{symbolic} forms: its text and its explicit relations to other
-blocks, the edges that in aggregate form the knowledge graph. Learned,
-\emph{sub-symbolic} representations (embeddings) are never stored in the block;
-they live in the vector index as derived, model-tagged views. Operating
-mathematically on concepts, such as vector arithmetic or steering, happens
-inside the external LLM in its own representation space, not in the brain. The
-brain thus owns durable symbolic knowledge and borrows the operational vector
-space from whichever model queries it. This also clarifies a naming
-coincidence: the \emph{semantic} module denotes general, consolidated knowledge
-(as opposed to episodic memory), not an embedding-based representation.
+The separation is also representational: a block carries meaning symbolically,
+in its text and its explicit relations to other blocks, while learned
+representations live in the vector index as derived, model-tagged views.
+Operating mathematically on concepts happens inside the external LLM, in its
+own representation space. This clarifies a naming coincidence: the
+\emph{semantic} module denotes general, consolidated knowledge, as opposed to
+episodic memory, not an embedding-based representation.
 
 \subsection{The catalog: making canonical evidence navigable}
 \label{sec:catalog}
@@ -1190,13 +1172,11 @@ and it says nothing at all about where any of it belongs. A brain published that
 way is a pile, and the party best placed to organize it, the one who assembled
 it, has no way to record the organization so that it travels with the artifact.
 
-Section~\ref{sec:query} already assumes otherwise. Its request carries a
-\texttt{subject} filter, which until now was free text matched against nothing
-this document defines. This subsection supplies what that filter needs.
+Section~\ref{sec:query} already assumes otherwise: its request carries a class
+filter, which until now named nothing this document defines.
 
 \paragraph{Where classification cannot live.}
-Two placements are ruled out before any design begins, and both follow from
-constraints stated earlier.
+Two placements are ruled out by constraints stated earlier.
 
 It cannot live inside the canonical block. A canonical block carries only what
 its bytes determine, so that re-registering an identical original is a no-op
@@ -1212,10 +1192,9 @@ proposed by a model. Filing a corpus of any size by hand is not a workable
 requirement.
 
 \paragraph{Classification is consolidated knowledge.}
-What remains is the correct answer and not merely the surviving one. ``This
-source is about Fourier analysis'' is a claim derived from reading the source,
-which is precisely what the semantic module holds and precisely what the
-ingestion path produces. Placing it there means a model may propose it, the
+``This source is about Fourier analysis'' is a claim derived from reading the
+source, which is what the semantic module holds and what the ingestion path
+produces. Placing it there means a model may propose it, the
 validation of Section~\ref{sec:validation} judges it, a drop removes it, and
 \texttt{rederive} rebuilds it. No new machinery is introduced.
 
@@ -1243,20 +1222,19 @@ deliberate: a placement takes its source from \texttt{evidence} and needs one
 edge, while a narrowing has two class endpoints and no evidence at all.
 
 Recording the parent as a field on the class would put it inside that class's
-\texttt{block\_id}. Moving a node in the taxonomy would then change the node's
-identity, every placement pointing at the old identity would dangle, and
-reorganizing one heading would invalidate everything filed beneath it.
-Reorganization is routine, so it must be cheap. This is the same reason
+\texttt{block\_id}, so moving a node in the taxonomy would change the node's
+identity, dangle every placement pointing at it, and invalidate everything
+filed beneath it. Reorganization is routine, so it must be cheap. This is the same reason
 supersession is a provenance edge and not a field on either block
 (Section~\ref{sec:ingestion}).
 
 \paragraph{One axis is never enough.}
-A source on the Fourier transform is mathematics and is signal processing, and a
-past exam is both an exam and a document from 2024. Forcing a single tree means
-choosing which of those questions a consumer is allowed to ask. Library
-classification reached this conclusion long before content addressing existed,
-and answered it with facets: a document takes coordinates on several independent
-axes instead of one shelf position~\cite{ranganathan1967prolegomena}. A brain
+A source on the Fourier transform is mathematics and is signal processing, and
+a past exam is both an exam and a document from 2024; forcing a single tree
+means choosing which of those questions a consumer may ask. Library
+classification answered this with facets long before content addressing
+existed: a document takes coordinates on several independent axes instead of
+one shelf position~\cite{ranganathan1967prolegomena}. A brain
 therefore MAY declare several schemes, and a canonical block MAY hold placements
 on each of them. The \texttt{broader} and \texttt{narrower} vocabulary here is
 the one SKOS uses for the same purpose~\cite{skos2009}.
@@ -1309,11 +1287,11 @@ requires, and the \emph{catalog} is the derived index over them: what is filed
 under a class, which classes a source holds, and what the axes look like.
 
 Unlike the vector index of Section~\ref{sec:indices-derived}, a catalog is a
-deterministic function of blocks a client already has, so any client rebuilds it
-and no model is required. It MAY nonetheless travel with the canonical module,
-bound to the composition it was built over under the staleness rule of
-Section~\ref{sec:indices-derived}, so that a consumer installing only canonical
-receives a navigable brain instead of a pile.
+deterministic function of blocks a client already has, so any client rebuilds
+it without a model. It MAY nonetheless travel with the canonical module, bound
+to the composition it was built over under the same staleness rule, so that a
+consumer installing only canonical receives a navigable brain instead of a
+pile.
 
 \paragraph{Normative rules.}
 A canonical block MUST NOT carry classification. Reclassification MUST NOT
@@ -1358,14 +1336,10 @@ OCI digest  & Any transportable file: a published blob, a manifest, or one of
 \end{tabularx}
 \end{table}
 
-These values may use the same algorithm, but they do not represent the same
-thing. The block hash is \emph{knowledge identity}; the Merkle root is the
-identity of a \emph{logical snapshot}; the OCI digest is the identity of a
-transportable \emph{file or manifest}.
-
+The three use the same algorithm and do not identify the same kind of thing.
 The composition and snapshot documents of Sections~\ref{sec:composition-doc}
-and~\ref{sec:snapshot} are worth locating explicitly on this scale, because both
-are made of lower-level identities while being identified at the third level.
+and~\ref{sec:snapshot} sit on this scale too, both made of lower-level
+identities while being identified at the third level.
 A composition document \emph{contains} block hashes and \emph{is} an OCI digest;
 a snapshot document \emph{contains} Merkle roots and composition digests and
 \emph{is} an OCI digest. Neither introduces a fourth level. The rule is that a
@@ -1382,11 +1356,10 @@ brain readable.
 
 \paragraph{A version is a statement, not a preference.}
 A block MUST be written under the \emph{oldest} registered schema its payload
-satisfies, and the proposer of a block does not get to choose. Writing under the
-newest schema instead would mean that introducing a schema silently re-versions
-every block written afterwards, including blocks that use nothing the new schema
-added, making an artifact unreadable to consumers that had not upgraded in order
-to record knowledge those consumers could have read perfectly well.
+satisfies, and the proposer of a block does not get to choose. Writing under the newest schema instead would let a new schema silently
+re-version every block written afterwards, including blocks that use nothing
+it added, making an artifact unreadable to consumers who could have read its
+knowledge perfectly well.
 Oldest-that-fits inverts this: a brain stops being readable by an older client
 only at the point where it genuinely uses something that client has no schema
 for.
@@ -1399,10 +1372,9 @@ and drop the rest.
 
 \paragraph{The refusal must be possible before the download.}
 Which schema versions a module holds is declared on the published artifact
-(Section~\ref{sec:distribution}). The information was always \emph{in} the
-brain, since every envelope names its version, but only reachable by fetching
-and parsing blocks, which is to say after a download the consumer may not be
-able to use. Declaring it up front lets a client refuse a brain it cannot read
+(Section~\ref{sec:distribution}). The information was always \emph{in} the brain, since every envelope names its
+version, but reachable only by fetching and parsing blocks, which is to say
+after a download the consumer may not be able to use. Declaring it up front lets a client refuse a brain it cannot read
 before transferring a byte, and say why.
 
 This is a different question from the protocol version, and the two MUST stay
