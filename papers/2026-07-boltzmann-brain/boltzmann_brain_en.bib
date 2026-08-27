@@ -584,3 +584,40 @@
   year    = {2024},
   note    = {arXiv:2309.02427}
 }
+
+@techreport{rfc3161,
+  title       = {Internet {X.509} Public Key Infrastructure Time-Stamp
+                 Protocol ({TSP})},
+  author      = {Adams, Carlisle and Cain, Pat and Pinkas, Denis and
+                 Zuccherato, Robert},
+  institution = {Internet Engineering Task Force},
+  number      = {RFC 3161},
+  year        = {2001},
+  note        = {\url{https://www.rfc-editor.org/rfc/rfc3161}}
+}
+
+@misc{keybase_sigchain,
+  title        = {Keybase Server Documentation: Sigchains},
+  author       = {{Keybase}},
+  year         = {2019},
+  howpublished = {\url{https://book.keybase.io/docs/server}},
+  note         = {``Every link is checked against the state of the account at
+                 that point in the sigchain, old links remain valid even if
+                 their signing keys are revoked later.''}
+}
+
+@misc{openssh_krl,
+  title        = {{OpenSSH} Key Revocation Lists ({PROTOCOL.krl})},
+  author       = {{OpenSSH project}},
+  year         = {2024},
+  howpublished = {\url{https://raw.githubusercontent.com/openssh/openssh-portable/master/PROTOCOL.krl}}
+}
+
+@misc{tuf_spec,
+  title        = {The Update Framework Specification},
+  author       = {{TUF community}},
+  year         = {2024},
+  howpublished = {\url{https://theupdateframework.github.io/specification/latest/}},
+  note         = {Root rotation: version N+1 must be signed by thresholds of
+                 both version N and version N+1.}
+}

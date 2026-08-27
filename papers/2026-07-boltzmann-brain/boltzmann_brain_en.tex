@@ -2090,6 +2090,24 @@ so an attacker holding a stolen key can backdate freely; Git has the same hole.
 The \texttt{created\_at} field of a snapshot is no better, being written by
 whoever built it.
 
+\paragraph{The deployed alternative, and what refusing it costs.}
+Rejecting self-asserted timestamps does not settle the question, because the
+deployed alternative is time nobody in the transaction asserts. C2PA, the
+closest comparable standard, adjudicates exactly this problem, signature
+validity after key expiry or revocation, with trusted third parties: every
+claim is timestamped by an RFC 3161 authority, signing certificates chain to a
+curated trust list, revocation is checked through OCSP, and validators are
+instructed to use the attested time, not the current time, when deciding
+whether the credential was valid, precisely so that claims can be validated
+indefinitely~\cite{c2pa_spec, rfc3161}. That buys post-expiry adjudication
+forever, and its price is the standing third party: a timestamp authority at
+signing time, revocation infrastructure at validation time, and a consumer
+that can reach both. This design refuses the third party, because the offline
+property of Section~\ref{sec:integrity-total} is the thing it will not trade,
+and takes the other side of the same bargain: positional validity needs
+nobody outside the artifact, and in exchange there is no external authority
+to appeal to when governance itself fails.
+
 The hash structure supplies the missing ordering. Snapshots are chained by
 digest, so a snapshot's position in the chain cannot be forged: inserting or
 moving one would change every descendant's parent digest, and those are already
@@ -2124,9 +2142,18 @@ compromised key, no longer trusted'' are different facts about the same
 snapshot, and collapsing them either breaks history or hides an attack.
 
 Hash-linking was introduced in Section~\ref{sec:snapshot} for versioning, and
-supplies the unforgeable ordering that revocation needs; Certificate
-Transparency reaches for the same property through the same
-structure~\cite{rfc9162}.
+supplies the unforgeable ordering that revocation needs. The closest
+precedents are clock-free in the same way. Keybase sigchains decide a
+statement's validity by its position, and ``old links remain valid even if
+their signing keys are revoked later'', which is this section's retirement
+semantics~\cite{keybase_sigchain}; OpenSSH key revocation lists revoke by
+serial, identifier or hash, with no validity window~\cite{openssh_krl}; and
+The Update Framework orders trust-root rotations by monotonic version number,
+each new root signed by thresholds of both its predecessor and itself, which
+is the quorum rule of Section~\ref{sec:trust-root} under another
+name~\cite{tuf_spec}. Certificate Transparency reaches for the ordering
+property through the same tree structure, at ecosystem scale and with a log
+operator this design does not have~\cite{rfc9162}.
 
 \begin{figure}[t]
 \centering
