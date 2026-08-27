@@ -2540,6 +2540,7 @@ grouped by what a caller can do about them.}
 \multicolumn{2}{@{}l}{\emph{Reconciliation} (Section~\ref{sec:divergence})} \\
 \quad Divergence            & The remote is not an ancestor of the local snapshot. \\
 \quad No common ancestor    & Two histories share no ancestor, so no three-way merge is defined. \\
+\quad Multiple merge bases & Criss-cross histories yield more than one best common ancestor, so the three-way merge is not determined. \\
 \quad Governance conflict   & The histories being reconciled carry different trust roots. \\
 \bottomrule
 \end{tabularx}
@@ -3214,18 +3215,28 @@ parents as merged-in history and MUST NOT derive any authorization from them.
 
 This is a genuine advantage over version control. Git merges lines of text;
 here what is merged is a set of immutable, content-addressed blocks. Nothing is ever ``the same block, slightly modified'':
-modifying a block yields a different identity (Section~\ref{sec:blocks}). A
-textual conflict is therefore not representable, and reconciliation of a single
-module is set arithmetic over identifiers, which converges regardless of the
-order the sides are combined in~\cite{shapiro2011crdt}.
+modifying a block yields a different identity (Section~\ref{sec:blocks}). A textual conflict is therefore not representable, and reconciliation of a
+single module is set arithmetic over identifiers: for a fixed ancestor the
+merge is symmetric in the two sides, so which brain performs a reconciliation
+does not change its result. What the result does depend on is the ancestor,
+and its selection is specified below.
 
 What makes it three-way rather than two-way is the common ancestor, and this is
 the part that cannot be skipped. Without it, a block present in one composition
 and absent from the other is ambiguous between ``they added it'' and ``I dropped
-it'', and those demand opposite outcomes. A conforming implementation MUST
-identify a common ancestor of the snapshots being reconciled, and MUST refuse
-with a distinguishable failure when the two histories share none
-(Table~\ref{tab:failures}).
+it'', and those demand opposite outcomes. A conforming implementation MUST identify the best common ancestors of the
+snapshots being reconciled: the common ancestors that are not themselves
+ancestors of another common ancestor. When the histories share none, it MUST
+refuse with a distinguishable failure (Table~\ref{tab:failures}). When they
+share more than one, which criss-cross histories produce, it MUST refuse with
+a distinguishable failure of its own: the merge yields different results for
+different ancestors, so an implementation that silently picked one would be
+choosing the outcome, and Git documents the same selection as unspecified for
+exactly this reason~\cite{gitmergebase}. The operator resolves the ambiguity
+explicitly, for example by first reconciling the ancestors themselves, so that
+a later reconciliation has a unique base. A reconciliation proceeds only when
+the best common ancestor is unique, and that ancestor is the $B$ of
+Equation~\ref{eq:merge}.
 
 For each module, with $B$ the ancestor's composition and $X$, $Y$ the two
 compositions being reconciled, the result is
@@ -3791,9 +3802,10 @@ places where a divergence would be invisible:
   a key with a \texttt{compromised\_from} record, and a trust-root revision that
   fails the quorum rule (Section~\ref{sec:authenticity}).
   \item \textbf{Reconciliation}: an ancestor composition and two branch
-  compositions, with the set Equation~\ref{eq:merge} must produce, including the
-  case where one side dropped what the other retained
-  (Section~\ref{sec:set-merge}).
+compositions, with the set Equation~\ref{eq:merge} must produce, including the
+case where one side dropped what the other retained, and a criss-cross history
+with two best common ancestors whose reconciliation MUST be refused
+(Section~\ref{sec:set-merge}).
 \end{itemize}
 
 These vectors MUST be plain data, readable without executing any implementation
