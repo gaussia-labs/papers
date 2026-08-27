@@ -987,11 +987,10 @@ digest, not a fourth kind of hash (Section~\ref{sec:hashes}). It is made \emph{o
 the three-level separation exists to keep those straight.
 
 \paragraph{It carries the trust root.}
-The \texttt{trust\_root} member holds the keys authorized to sign for this brain
-and the scopes each one holds (Section~\ref{sec:trust-root}). It lives here
-rather than in a module or a layer because it MUST reach every install, complete
-or partial, and because carrying it inside the signed document means a signature
-can never be evaluated against a key list the signer did not commit to.
+The \texttt{trust\_root} member holds the keys authorized to sign for this
+brain and the scopes each one holds. It lives here rather than in a module or
+a layer because it MUST reach every install, complete or partial
+(Section~\ref{sec:trust-root}).
 
 \paragraph{Its timestamp decides nothing.}
 The \texttt{created\_at} member is descriptive. It is written by whoever built
@@ -1534,7 +1533,7 @@ hash-linked. Altering anything anywhere, a byte in a source, a block's
 membership in a module, an entry in an old snapshot, changes an identifier,
 which changes every value above and after it.
 
-Two consequences follow, and they point in opposite directions.
+Two consequences follow, in opposite directions.
 
 \paragraph{Integrity is already total and transitive.}
 Any consumer, offline, with no configuration and no trust in anyone, can
@@ -1544,23 +1543,17 @@ this section may be allowed to make it conditional.
 
 \paragraph{Authorship is unreachable from inside.}
 Every check above is a check of internal consistency, and internal consistency
-is cheap to manufacture. Anyone may assemble a brain containing whatever they
-like, compute its roots correctly, and publish a snapshot that passes every
-verification this document defines. The attack requires no cleverness: copy a
-brain, add a fabricated semantic block, recompute the affected roots, publish a
-consistent snapshot under someone else's name. The structure proves that a brain
-is coherent. It cannot distinguish a coherent brain from \emph{a particular
-party's} coherent brain.
+is cheap to manufacture. The attack requires no cleverness: copy a brain, add
+a fabricated semantic block, recompute the affected roots, publish a
+consistent snapshot under someone else's name. The structure proves that a
+brain is coherent; it cannot distinguish a coherent brain from \emph{a
+particular party's} coherent brain.
 
-This is worse than a missing feature, because without it a guarantee stated
-elsewhere in this document does not hold. Principle~8 requires that every drop,
-cascade, and redaction be auditable, and
-Section~\ref{sec:erasure-verifiability} rests on provenance being the ledger
-that makes exclusion trustworthy. But provenance is made of blocks like
-everything else, and the actor it records is a \emph{declared identifier} rather
-than an authenticated identity. Whoever can write to a brain can forge its audit
-trail. A signature is what makes that actor field mean anything, which is why
-authenticity is specified here rather than left to a deployment.
+This is worse than a missing feature, because without it Principle~8 does not
+hold: provenance is made of blocks like everything else, and the actor it
+records is a \emph{declared identifier} rather than an authenticated identity,
+so whoever can write to a brain can forge its audit trail. A signature is what
+gives that actor field meaning.
 
 So what is missing is not more hashing. It is a single assertion, by a party,
 that the hashes cannot make on their own.
@@ -1568,9 +1561,8 @@ that the hashes cannot make on their own.
 \subsection{Where a signature attaches}
 \label{sec:sig-attach}
 
-The hash structure determines this almost completely, and the answer is
-unusually economical: \textbf{one signature over the snapshot covers
-everything}.
+The hash structure determines this almost completely: \textbf{one signature
+over the snapshot covers everything}.
 
 Signing a snapshot commits to the module roots it names. Each root commits to
 that module's entire block set. Each block commits to its own bytes. The parent
@@ -1580,20 +1572,17 @@ implementation MUST therefore attach signatures to snapshots, and MUST NOT
 require a signature over any other object to establish authorship.
 Signing the head is sufficient; signing every historical snapshot is OPTIONAL.
 
-A useful side effect: because the snapshot names each module's Merkle layout and
-each block envelope names its serialization, a signature transitively commits to
-\emph{how} the values were computed and not merely to the values. A consumer
-cannot be steered into recomputing under a different construction and finding a
-mismatch it has no way to interpret.
+Because the snapshot names each module's Merkle layout and each block envelope
+names its serialization, a signature commits to \emph{how} the values were
+computed and not merely to the values, so a consumer cannot be steered into
+recomputing under a different construction.
 
 \paragraph{Blocks MUST NOT carry the signer.}
-This follows from an argument this document already makes. Block identity must
-depend on the hashed bytes alone, or re-registering an identical source stops
-deduplicating (Section~\ref{sec:modules}). If a signer entered the hashed
-content, two parties ingesting the same PDF would produce different block
-identifiers and structural sharing would collapse. Blocks stay anonymous and
-immutable; snapshots carry attribution. Who acted is recorded in provenance and
-authenticated by the signature over the snapshot that committed the act.
+Block identity must depend on the hashed bytes alone
+(Section~\ref{sec:modules}), so a signer entering the hashed content would
+make two parties ingesting the same PDF produce different identifiers and
+collapse structural sharing. Blocks stay anonymous and immutable; snapshots
+carry attribution.
 
 \paragraph{Signing module roots individually is not a substitute.}
 Five independent signatures are five independent claims, and nothing binds them
@@ -1673,9 +1662,7 @@ brain, and MUST NOT define a format for one.
 
 \paragraph{Signatures are detached.}
 This is deliberately unlike Git, which embeds the signature inside the commit
-object and therefore changes the commit's identity when it is re-signed. Keeping
-signatures outside the document they cover buys three things that this
-architecture specifically needs:
+object and therefore changes the commit's identity when it is re-signed. Keeping signatures outside the document they cover buys three things:
 
 \begin{itemize}[leftmargin=1.4em]
   \item Snapshot identity does not depend on whether, or by whom, a snapshot was
@@ -1750,35 +1737,32 @@ rather than any individual key, is what a consumer pins
 
 \paragraph{Two forms of position, and why they are not interchangeable.}
 \texttt{since} and \texttt{retired\_from} name a \emph{revision number};
-\texttt{compromised\_from} names a \emph{snapshot digest}. The asymmetry is a
-construction constraint rather than a preference. A revision travels inside the
-snapshot that introduces it, so naming that snapshot by digest from within the
-trust root would be circular: the digest cannot be computed until the trust root
-is complete, and the trust root would not be complete until it named the digest.
-A revision number breaks the cycle and gives up nothing, because a revision
-corresponds to exactly one snapshot in the chain and the position is recoverable
-by walking parents. A \texttt{compromised\_from}, by contrast, always names a
-position that is already published, so its digest is known and no cycle arises. The finer granularity is necessary rather than incidental, since a revision
-may be in force across many snapshots and a key compromised in the middle of
-that span cannot be described by a revision boundary.
+\texttt{compromised\_from} names a \emph{snapshot digest}. The asymmetry is a construction constraint rather than a preference. A
+revision travels inside the snapshot that introduces it, so naming that
+snapshot by digest from within the trust root would be circular. A revision
+number breaks the cycle and gives up nothing, because a revision corresponds
+to exactly one snapshot and the position is recoverable by walking parents. A
+\texttt{compromised\_from} always names a position already published, so its
+digest is known and no cycle arises; the finer granularity is necessary
+because a revision may be in force across many snapshots, and a key
+compromised mid-span cannot be described by a revision boundary.
 
-One consequence is worth making normative, because it removes an obvious lie. A
-revision that admitted a key is itself in the chain, so \texttt{since} is
+One consequence is normative, because it removes an obvious lie. A revision
+that admitted a key is itself in the chain, so \texttt{since} is
 \emph{confirmable} rather than merely asserted: a verifier walking revisions sees
 when a key first appeared. A trust root claiming a \texttt{since} earlier than
 the chain supports MUST be rejected, which is what stops a key that has just
 added itself from also claiming to have been authorized from the beginning.
 
 \paragraph{Why it is not a sixth module.}
-Modules are selectively installable (Section~\ref{sec:selective}), so a consumer
-who installed only the semantic module would not receive the very document
-needed to verify anything at all. The key list has to be present in every
-install, complete or partial, which places it at the brain level rather than
-among the modules. Carrying it in the snapshot, which is the brain-level
-document and the config blob of a published artifact, makes omitting it
-structurally impossible: there is no install that does not fetch the snapshot.
-As a second consequence the list falls inside the signed bytes, so a signature
-can never be evaluated against a key list the signer did not commit to.
+Modules are selectively installable (Section~\ref{sec:selective}), so a
+consumer who installed only the semantic module would not receive the document
+needed to verify anything at all. The key list has to reach every install,
+complete or partial, which places it at the brain level. Carrying it in the
+snapshot, the config blob of a published artifact, makes omitting it
+structurally impossible, and puts the list inside the signed bytes, so a
+signature can never be evaluated against a key list the signer did not commit
+to.
 
 \paragraph{Scopes are derived from operations, not invented.}
 A scope names something the protocol already defines rather than a generic
@@ -1824,12 +1808,9 @@ A verifier MUST compute the required scope set from the difference between the
 snapshot and its first parent, or, for a snapshot that has no parents, from its
 difference against the empty brain (Section~\ref{sec:genesis}), and MUST reject a
 signature whose key does not hold every scope in that set, even if the signature
-claims fewer. The
-\texttt{scopes} field of a signature record is therefore a statement of intent
-that aids diagnosis, never the basis of the decision. This mirrors the rule of
-Section~\ref{sec:schema-versioning}: a version is a statement about what the
-payload uses, not a preference, and a scope is a statement about what the
-snapshot did, not a claim the signer gets to make.
+claims fewer. The \texttt{scopes} field of a signature record is therefore a statement of
+intent that aids diagnosis, never the basis of the decision: a scope states
+what the snapshot did, not what the signer claims.
 
 \begin{callout}[title=The trust root is not access control]
 Nothing can stop someone modifying a copy of a brain they already hold. The
@@ -1861,9 +1842,9 @@ event in the chain rather than something folded into a commit, and a consumer ca
 enumerate every change of authority a brain has ever undergone by walking the
 parents and comparing one digest.
 
-A \texttt{govern\_quorum} of~1 already stops a stranger, because a stranger holds
-no listed key at all. A quorum of~2 or more is what protects a brain against a
-single stolen legitimate key, which is the case worth designing for.
+A \texttt{govern\_quorum} of~1 already stops a stranger, who holds no listed
+key at all. A quorum of~2 or more protects a brain against a single stolen
+legitimate key, which is the case worth designing for.
 
 \subsection{Retirement and revocation, without clocks}
 \label{sec:revocation}
@@ -1915,15 +1896,13 @@ conforming implementation MUST distinguish them:
   failure.
 \end{description}
 
-Stating that distinction plainly matters in operation: ``signed by a retired
-key, still valid'' and ``signed by a compromised key, no longer trusted'' are
-different facts about the same snapshot, and collapsing them either breaks
-history or hides an attack.
+In operation, ``signed by a retired key, still valid'' and ``signed by a
+compromised key, no longer trusted'' are different facts about the same
+snapshot, and collapsing them either breaks history or hides an attack.
 
-This is the clearest case of the two layers composing. Hash-linking was
-introduced in Section~\ref{sec:snapshot} for versioning, and it turns out to
-supply exactly the unforgeable ordering that revocation needs.
-Certificate Transparency reaches for the same property through the same
+Hash-linking was introduced in Section~\ref{sec:snapshot} for versioning, and
+supplies the unforgeable ordering that revocation needs; Certificate
+Transparency reaches for the same property through the same
 structure~\cite{rfc9162}.
 
 \begin{figure}[t]
@@ -1971,10 +1950,9 @@ that withdraws a signature already accepted.}
 \subsection{Creating a brain: the genesis snapshot}
 \label{sec:genesis}
 
-Every rule stated so far is expressed against a snapshot's first parent, and one
-snapshot in every brain has none. The \texttt{init} operation
-(Table~\ref{tab:operations}) produces it, and because it is the origin of every
-authority the brain will ever have, its rules are stated here.
+Every rule stated so far is expressed against a snapshot's first parent, and
+one snapshot in every brain has none. The \texttt{init} operation produces it,
+and it is the origin of every authority the brain will ever have.
 
 A \emph{genesis snapshot} is a snapshot whose \texttt{parents} list is empty.
 A brain MUST have exactly one, and every other snapshot MUST be reachable from
@@ -1982,8 +1960,8 @@ it by following parents. Its module compositions are usually empty, and an empty
 composition has a well-defined root (Section~\ref{sec:merkle}), so a brain with
 no knowledge in it is still a brain that verifies.
 
-Three rules follow, and each closes a gap the parent-relative phrasing would
-otherwise leave open.
+Three rules follow, each closing a gap the parent-relative phrasing leaves
+open.
 
 \paragraph{Its difference is taken against the empty brain.}
 A verifier computes the scopes a snapshot required from its difference with its
@@ -1998,18 +1976,16 @@ is worth knowing before creating a brain with a narrowly scoped key.
 A trust-root revision must be signed by keys authorized in the previous revision
 (Section~\ref{sec:trust-root}), and a genesis snapshot has no previous revision
 to draw on. It is therefore not a revision, and a verifier MUST NOT reject it for
-failing the quorum rule. This is the single point in the protocol where authority
-is asserted rather than derived, and Section~\ref{sec:bootstrap} is entirely
-about what to do with that fact.
+failing the quorum rule. This is the single point in the protocol where authority is asserted rather
+than derived, and Section~\ref{sec:bootstrap} is about what to do with that
+fact.
 
 \paragraph{It SHOULD nonetheless satisfy its own declared quorum.}
 A genesis snapshot SHOULD carry at least \texttt{govern\_quorum} valid
-signatures from distinct keys listed in its own trust root. This proves nothing
-against an attacker, who can satisfy it just as easily, and it is not required
-for that reason. It is required for coherence: a brain that declares a quorum of
-two and whose founding act carried one signature is stating a rule it has already
-departed from, and an operator reading that history later cannot tell whether the
-second holder was ever real. An implementation MAY warn when a genesis snapshot
+signatures from distinct keys listed in its own trust root. This proves nothing against an attacker, who can satisfy it just as easily. It
+is required for coherence: a brain that declares a quorum of two and whose
+founding act carried one signature is stating a rule it has already departed
+from. An implementation MAY warn when a genesis snapshot
 carries fewer signatures than the quorum it declares.
 
 A genesis snapshot MAY be unsigned, and a brain whose genesis is unsigned is a
@@ -2046,15 +2022,14 @@ specified, and an implementation MUST support both:
 \end{description}
 
 Trust on first use is the RECOMMENDED default, with out-of-band pinning
-available to anyone who wants a stronger anchor. The residual limitation is
-stated rather than glossed: a consumer who has never seen a given brain has no
-basis on which to reject an impostor's, and no arrangement of data inside the
-artifact can change that. Every comparable system carries this problem; SSH
-lives with it, the web spends an industry on it, and transparency logs are
+available to anyone who wants a stronger anchor. The residual limitation: a
+consumer who has never seen a given brain has no basis on which to reject an
+impostor's, and no arrangement of data inside the artifact can change that.
+Every comparable system carries this problem, and transparency logs are
 another answer to it~\cite{rfc9162, newman2022sigstore}.
 
-Pinning is also what closes the last impersonation route, which is the subject of
-Section~\ref{sec:impersonation}.
+Pinning also closes the last impersonation route
+(Section~\ref{sec:impersonation}).
 
 \subsection{How a signed brain is published}
 \label{sec:publish-signed}
@@ -2066,7 +2041,7 @@ answer, because they must be able to accumulate.
 A signature cannot simply be a layer. Adding a second signature to satisfy a
 quorum would change the manifest, and therefore the brain's digest, so a brain
 would change identity because someone countersigned it, with no knowledge having
-changed. That is precisely what detaching signatures was meant to avoid.
+changed. That is what detaching signatures was meant to avoid.
 
 The OCI Referrers API exists for this~\cite{oci_referrers}. A signature is
 published as a separate artifact whose \texttt{subject} is the brain's manifest,
@@ -2076,13 +2051,11 @@ work~\cite{newman2022sigstore, torres2019intoto}, so signatures accumulate
 publish signatures this way, so that registry tooling can discover them without
 implementing this protocol.
 
-But referrers exist only inside an OCI registry, and a signature that lives only
-there does not survive a brain being exported to a tarball, a repository, or a
-disk, which the portability argument of Section~\ref{sec:composition} will not
-accept. So both are required. Signature records are part of the brain format and
-MUST travel with an exported brain, alongside the snapshot; publication
-additionally mirrors them into referrers. The two carry the same record, defined
-once in Section~\ref{sec:sshsig}.
+But referrers exist only inside an OCI registry, and a signature that lives
+only there does not survive export to a tarball, a repository, or a disk. So
+both are required: signature records are part of the brain format and MUST
+travel with an exported brain, alongside the snapshot, and publication
+additionally mirrors them into referrers.
 
 \begin{table}[htbp]
 \centering
@@ -2147,8 +2120,8 @@ verified, whatever the policy allowed it to install.
 \subsection{Three cases, worked through}
 \label{sec:cases}
 
-The rules above are short, and their consequences are not obvious until they are
-run against a situation. Three cases cover what a deployment actually meets:
+The rules above are short, and their consequences are not obvious until they
+are run against a situation. Three cases cover what a deployment meets:
 admitting an owner, a key admitting itself, and starting from nothing.
 
 In the first two, the brain is at revision~1 with keys $A$ and $B$, both holding
@@ -2156,18 +2129,16 @@ In the first two, the brain is at revision~1 with keys $A$ and $B$, both holding
 \texttt{S7}. A consumer has pinned the digest of revision~1.
 
 \paragraph{Case 1: admitting a third owner.}
-$C$ generates a key pair and sends the \emph{public} half. The channel need not
-be confidential, since nothing secret is transmitted, but the recipients do need
-independent grounds to believe the key is $C$'s, which is an out-of-band question
-the protocol does not answer. A trust root at revision~2 is built listing $A$,
-$B$, and $C$; a snapshot \texttt{S8} is built naming \texttt{S7} as its parent,
-carrying that trust root, and leaving every module root equal to \texttt{S7}'s,
-because a revision changes nothing else (Section~\ref{sec:trust-root}). $A$ and
-$B$ each sign \texttt{S8}, producing two detached signatures over the same bytes.
+$C$ generates a key pair and sends the \emph{public} half. The channel need
+not be confidential, though the recipients need independent grounds to believe
+the key is $C$'s, which the protocol does not answer. A trust root at
+revision~2 lists $A$, $B$ and $C$; a snapshot \texttt{S8} names \texttt{S7} as
+its parent, carries that trust root, and leaves every module root equal to
+\texttt{S7}'s, because a revision changes nothing else
+(Section~\ref{sec:trust-root}). $A$ and $B$ each sign \texttt{S8}.
 
-When $C$ later commits \texttt{S9} and signs it, a consumer verifying that
-snapshot resolves a chain of five questions, and the last one is where it
-terminates:
+When $C$ later commits \texttt{S9} and signs it, a consumer resolves five
+questions, and the last is where it terminates:
 
 \begin{enumerate}[leftmargin=1.6em]
   \item Does the structure recompute? Integrity, requiring no trust
@@ -2183,21 +2154,20 @@ terminates:
   revision~1, whose digest matches the pin.
 \end{enumerate}
 
-Nothing in this requires $C$ to do anything unusual: $C$ commits and signs
-normally. What makes those signatures carry weight is that an earlier snapshot in
-the same chain authorized the key, signed by parties who were already authorized.
-The authorization travels inside the brain, so it reaches every consumer without
-anyone fetching anything extra.
+$C$ commits and signs normally. What makes those signatures carry weight is
+that an earlier snapshot in the same chain authorized the key, signed by
+parties already authorized, and that authorization travels inside the brain,
+so it reaches every consumer without an extra fetch.
 
 \paragraph{Case 2: a key admitting itself.}
 $C$ installs the brain, which is public and requires no permission, edits the
 trust root to include their own key, and builds \texttt{S8$'$} naming \texttt{S7}
 as its parent. $C$ signs it with their own key.
 
-The first two checks pass, and it is worth being explicit that they do. The
-structure recomputes, because $C$ recomputed it correctly. The signature
-verifies, because $C$ genuinely produced it. \emph{Integrity does not detect this
-attack}, which is the whole reason Section~\ref{sec:authenticity} exists.
+The first two checks pass: the structure recomputes, because $C$ recomputed it
+correctly, and the signature verifies, because $C$ produced it.
+\emph{Integrity does not detect this attack}, which is why this section
+exists.
 
 The third and fourth checks fail:
 
@@ -2210,8 +2180,8 @@ The third and fourth checks fail:
   revision~1. It carries none: \emph{quorum failure}.
 \end{itemize}
 
-The comparison with Case~1 is the point of stating both, and it is sharper than
-it first appears (Figure~\ref{fig:cases}):
+The comparison with Case~1 is sharper than it first appears
+(Figure~\ref{fig:cases}):
 
 \begin{callout}
 The key list in Case~1 and the key list in Case~2 may be \textbf{byte-identical}.
@@ -2219,15 +2189,15 @@ The same three keys, the same scopes, the same serialization. What distinguishes
 them is not the list. It is \emph{who signed the snapshot that introduced it}.
 \end{callout}
 
-An attacker can write any key list they like. What they cannot write are its
+An attacker can write any key list they like; what they cannot write are its
 approvals, because producing one requires a private key they do not hold. Two
-further consequences follow. Rejection propagates forward: a later snapshot
-naming \texttt{S8$'$} as its parent draws its trust root from a snapshot already
-rejected, so the whole subtree falls with it. And this case fails \emph{without
-any pin at all}, provided the consumer holds the chain, because the verifier is
-checking an internal transition rule rather than comparing against an external
-anchor. The chain the attacker must ship contains the evidence that the attacker's
-own change of authority was never approved.
+consequences follow. Rejection propagates forward: a later snapshot naming
+\texttt{S8$'$} as its parent draws its trust root from a snapshot already
+rejected, so the whole subtree falls with it. And this case fails
+\emph{without any pin at all}, provided the consumer holds the chain, because
+the verifier is checking an internal transition rule rather than an external
+anchor: the chain the attacker must ship contains the evidence that their own
+change of authority was never approved.
 
 \begin{figure}[t]
 \centering
@@ -2272,29 +2242,24 @@ empty \texttt{parents} list, that trust root, and empty module compositions; and
 both keys sign it, satisfying the quorum the trust root itself declares
 (Section~\ref{sec:genesis}).
 
-Read from inside the artifact, this proves nothing, and the asymmetry with the
-first two cases is the useful thing to notice. There, what decided the outcome
-was a rule a verifier could check against material it already held. Here there is
-no such material: the trust root asserts that a key is authorized, and the entity
-asserting it is that key. Any party can construct an indistinguishable object.
+Read from inside the artifact, this proves nothing. In the first two cases the
+outcome was decided by a rule a verifier could check against material it
+already held; here there is no such material, and any party can construct an
+indistinguishable object.
 
-What gives a genesis meaning is therefore the step that happens outside it: the
-digest of revision~1 is published through an independent channel and pinned by
-consumers on first contact (Section~\ref{sec:bootstrap}). From that moment the
-derivable rules take over, and Cases~1 and~2 behave as described. Stated
-compactly: \emph{a genesis is not validated, it is anchored}, and it is the only
-object in this protocol of which that is true.
+What gives a genesis meaning is therefore the step outside it: the digest of
+revision~1 is published through an independent channel and pinned by consumers
+on first contact (Section~\ref{sec:bootstrap}). From that moment the derivable
+rules take over. \emph{A genesis is not validated, it is anchored}, and it is
+the only object in this protocol of which that is true.
 
 \subsection{Which impersonation routes remain closed}
 \label{sec:impersonation}
 
-The design is worth judging against the attacks it is meant to stop, including
-the two it does not (Table~\ref{tab:attacks}). The mechanism that closes most of
-them is the same one throughout: a signature is a value only the holder of a
-private key can produce, and a trust-root revision is not a claim about the key
-list but a document that must carry the signatures of keys authorized in the
-previous list. An attacker can write any key list they like; they cannot write
-its approvals.
+Table~\ref{tab:attacks} judges the design against the attacks it is meant to
+stop, including the two it does not. One mechanism closes most of them: a
+trust-root revision is not a claim about the key list but a document that must
+carry the signatures of keys authorized in the previous list.
 
 \begin{table}[htbp]
 \centering
@@ -2340,16 +2305,14 @@ Present a fabricated brain to a consumer who has never seen the genuine one. &
 \label{sec:deployments}
 
 Nothing above changes with the size of a deployment; only its configuration
-does. Two cases are worth stating because they are the common ones and because
-they exercise opposite ends of the same structure.
+does. Two common cases exercise opposite ends of the same structure.
 
 \paragraph{A brain with a single author.}
-One key, holding every scope, with \texttt{govern\_quorum} of~1. The trust root
-has one entry, signing is one command at publication, and the value obtained is
-not access control but tamper-evidence: a brain republished by anyone else fails
-verification for every consumer who has pinned this one. The single author does
-not need a second key to benefit, and adding a second later is an ordinary
-trust-root revision signed by the first.
+One key, holding every scope, with \texttt{govern\_quorum} of~1. The trust
+root has one entry, signing is one command at publication, and what it buys is
+not access control but tamper-evidence: a brain republished by anyone else
+fails verification for every consumer who has pinned this one. Adding a second
+key later is an ordinary trust-root revision signed by the first.
 
 \paragraph{Public read, restricted write.}
 Anyone may install the brain; a few may publish it. Reading is a registry
@@ -2366,11 +2329,8 @@ happens when a contribution actually arrives.
 
 With the above in place, a hostile registry cannot fabricate state: everything
 verifies offline against the pinned trust root. It can still \emph{withhold},
-serving an older, legitimately signed snapshot indefinitely while concealing
-that newer ones exist. Signing does not address this, and claiming otherwise
-would be misleading. It is treated as a stated limitation in
-Section~\ref{sec:security} and named again in
-Section~\ref{sec:conclusion}.
+serving an older, legitimately signed snapshot indefinitely. Signing does not
+address this, and Section~\ref{sec:freshness} states it as a limitation.
 
 % ===========================================================================
 \section{The Boltzmann Protocol}
