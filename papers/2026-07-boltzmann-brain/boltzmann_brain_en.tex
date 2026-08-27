@@ -302,8 +302,8 @@ as models and methods evolve.
   \item Distinguishing concrete experiences, general facts, and procedures.
   \item Updating knowledge without losing history, provenance, or
   reproducibility.
-  \item Removing obsolete, costly, or legally untenable knowledge without
-silently compromising verifiability.
+  \item Removing obsolete, costly, or harmful knowledge without silently
+compromising verifiability.
   \item Distributing a complete brain or only selected modules.
   \item Letting interchangeable external LLMs query and contribute through a
 stable contract.
@@ -1180,9 +1180,9 @@ Queries stay correct, because a hit that is no longer a member fails
 membership verification and is filtered out (Section~\ref{sec:query}), and
 that is what makes it worse: nothing surfaces to be noticed, and the published
 artifact silently carries a learned representation of content that was
-deliberately excluded. For a drop motivated by law or safety that leaks what
-the drop was meant to remove, and text embeddings recover enough of their
-input for the concern to be a practical one~\cite{morris2023embeddings}. Drop
+deliberately excluded. A drop meant to destroy sensitive content leaks exactly what it was meant to
+remove, and text embeddings recover enough of their input for the concern to
+be a practical one~\cite{morris2023embeddings}. Drop
 is the \emph{ordinary} removal path (Section~\ref{sec:forgetting}), so it is
 the common case that leaks.
 
@@ -3240,7 +3240,7 @@ Everything described so far only adds. Content addressing and immutable blocks
 make individual units append-only, but a module version is a \emph{composition}
 of those units, and compositions can exclude what should no longer belong.
 Without an explicit way to drop blocks, a brain that only grows is neither
-practical nor, in some jurisdictions, lawful, and it cannot recover from
+practical nor always permissible for its operator, and it cannot recover from
 knowledge that was deliberately wrong.
 
 \subsection{Why exclusion must be first-class}
@@ -3259,11 +3259,15 @@ Unbounded growth costs storage and precision. Stale near-duplicates compete for
 the top of every ranking, so a brain that never excludes gets measurably worse
 at answering.
 
-\paragraph{Law and safety.}
-Personal data, credentials, or licensed material may have to disappear even
-from retained history~\cite{gdpr2016}. That case is stricter than exclusion: it
-requires destroying bytes that a retained root still names. It is treated
-separately in Section~\ref{sec:erasure-verifiability}.
+\paragraph{Obligations to destroy.} Credentials, private records, or licensed
+material may have to disappear even from retained history: a deployment can be
+under obligations, contractual, organizational, or imposed by whoever governs
+it, that demand destruction rather than exclusion. That case is stricter: it
+requires destroying bytes that a retained root still names, and it is treated
+separately in Section~\ref{sec:erasure-verifiability}. One boundary holds for
+this whole section: the protocol states precisely what each mechanism does and
+does not destroy, and whether that satisfies any particular obligation a
+deployment is under is a determination this specification does not make.
 
 \subsection{What biology suggests}
 
@@ -3386,24 +3390,23 @@ auditable record, or a \emph{lineage rewrite} rebuilds history so the block
 was never referenced. Crypto-shredding, destroying a key instead of the
 ciphertext it protects~\cite{nist2014sanitization}, is deliberately not among
 them: it presupposes an encrypted-block scheme, and this version defines none
-(Section~\ref{sec:no-confidentiality}). Redaction is the path for destroying retained
-canonical bytes under law or safety policy. It is not the cleanup path for a
+(Section~\ref{sec:no-confidentiality}). Redaction is the path for destroying retained canonical bytes under policy. It is not the cleanup path for a
 wrongly ingested source or for wrong semantic knowledge: those are dropped.
 
-\paragraph{Append-only is not an exemption from erasure.}
-The episodic module is exempt from drop, and the law-and-safety pressure named
-earlier in this section can require personal data to disappear. Those two facts
-meet in an uncomfortable place, and this document says so plainly: for personal data inside an episode, redaction is the
-\emph{only} available path, so the mechanism framed here as rare and exceptional
-is the ordinary one for the module most likely to contain personal data. Three
-consequences are normative. A retention policy MUST be able to declare episodic
-content redactable (Table~\ref{tab:policy}). An implementation MUST NOT read the
-append-only rule as an exemption from an erasure obligation, since the two
-constrain different things: append-only governs how a record is \emph{corrected},
-not whether its bytes may be destroyed. And a deployment recording episodes about
-identifiable people SHOULD decide in advance which episodic content is
-redactable, rather than meet the question for the first time when a request
-arrives.
+\paragraph{Append-only is not an exemption from destruction.} The episodic
+module is exempt from drop, and the obligations named earlier in this section
+can require an episode's bytes to disappear. Those two facts meet in an
+uncomfortable place, and this document says so plainly: for bytes inside an
+episode that must be destroyed, redaction is the \emph{only} available path,
+so the mechanism framed here as rare and exceptional is the ordinary one for
+the module most likely to attract such obligations. Three consequences are
+normative. A retention policy MUST be able to declare episodic content
+redactable (Table~\ref{tab:policy}). An implementation MUST NOT read the
+append-only rule as grounds for refusing to destroy bytes, since the two
+constrain different things: append-only governs how a record is
+\emph{corrected}, not whether its bytes may be destroyed. And a deployment recording episodes about identifiable people SHOULD decide in
+advance which episodic content is redactable, rather than meet the question
+for the first time when an obligation arrives.
 
 \begin{table}[htbp]
 \centering
@@ -3538,10 +3541,10 @@ Allowed mechanisms  & Which removal mechanisms are permitted at all. & all the m
 
 Three of these defaults are deliberately restrictive. Canonical drops are
 forbidden by default because excluding evidence forfeits re-derivation from that
-source, which Principle~2 makes a privileged act. Both redaction settings are
-forbidden by default because redaction is the mechanism for law and safety, not
-the cleanup path, and a deployment that has not decided which content is
-redactable has not decided that it is; the episodic setting is separate because it is the module where the question
+source, which Principle~2 makes a privileged act. Both redaction settings are forbidden by default because redaction is the
+mechanism for destruction obligations and safety, not the cleanup path, and a
+deployment that has not decided which content is redactable has not decided
+that it is; the episodic setting is separate because it is the module where the question
 is most likely to arise and least likely to have been considered. The episodic module can never appear among the
 droppable modules: it is append-only by protocol, not by policy, and no
 configuration may make it otherwise.
@@ -4075,10 +4078,9 @@ correcting the record rather than rewriting it, exactly as the append-only
 rule prescribes. Two consequences are stated rather than implied. Superseded
 episodes remain in the composition and remain retrievable under
 \texttt{include\_superseded}, so a consumer that opts into superseded content
-is opting into poisoned-then-corrected content as well. And where an episode's
-bytes are themselves the harm, personal data or unlawful content rather than
-wrong knowledge, the path is the one Section~\ref{sec:forgetting} already
-names for episodic content: redaction under policy, not drop.
+is opting into poisoned-then-corrected content as well. And where an episode's bytes are themselves the harm, rather than wrong
+knowledge, the path is the one Section~\ref{sec:forgetting} already names for
+episodic content: redaction under policy, not drop.
 
 Signatures narrow the window further in one specific way. Because a snapshot's
 author is authenticated, a poisoned commit is attributable to a key rather than to
@@ -4094,8 +4096,7 @@ stale registry cannot fabricate state. It can still \emph{withhold}: serve an
 older, legitimately signed snapshot indefinitely, while concealing that newer
 ones exist. Every signature verifies, every root recomputes, the trust root
 matches the pin, and the consumer is nonetheless reading a brain that was
-current months ago, possibly one from before a drop that removed knowledge for
-legal reasons.
+current months ago, possibly one from before a drop that removed harmful content.
 
 That exposure splits in two, and only one half is irreducible. Against a
 returning consumer, one that already holds a newer head, serving an older one
