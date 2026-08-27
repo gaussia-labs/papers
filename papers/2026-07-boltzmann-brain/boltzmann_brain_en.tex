@@ -506,9 +506,9 @@ useful, must hold \emph{at the same time and over the same artifact}:
 
 \begin{description}[leftmargin=2.6em, style=sameline, font=\normalfont\bfseries]
   \item[R1. Canonical evidence.] The original source is preserved and
-  addressable, so that any interpretation can be audited against it and
-  re-derived when methods improve. Without this, knowledge cannot be
-  re-interpreted, only trusted.
+addressable, so that any interpretation can be traced to the bytes it cites
+and re-derived when methods improve. Without this, knowledge cannot be
+re-interpreted, only trusted.
   \item[R2. Typed memories.] Concrete experiences, consolidated facts, and
   procedures are distinguished rather than collapsed into undifferentiated
   chunks. Without this, ``what happened in the class of May 14'' and ``the
@@ -3175,15 +3175,21 @@ that asked to include superseded blocks can tell which ones they are.
 verification does not otherwise survive selective installation: a bundle's
 sources point at canonical blocks, and the canonical module may not be
 installed at all (Section~\ref{sec:selective}), so a consumer can receive a
-fully verified semantic block citing evidence it cannot check. Since R1 makes
-canonical evidence the root of auditability, the bundle MUST say which of
-three situations holds: \texttt{verified}, the cited block is
+fully verified semantic block citing evidence it cannot check. Since R1 makes canonical evidence the root of traceability, the bundle MUST
+say which of three situations holds: \texttt{verified}, the cited block is
 present in the installed canonical composition; \texttt{uninstalled}, the
-canonical module is not installed here and the citation could not be checked; or
-\texttt{missing}, the canonical module \emph{is} installed and the citation is
-not in it, which is a violation of R1 and MUST be reported rather than smoothed
-over. Collapsing the last two would hide a broken brain behind an incomplete
-install.
+canonical module is not installed here and the citation could not be checked;
+or \texttt{missing}, the canonical module \emph{is} installed and the citation
+is not in it, which is a violation of R1 and MUST be reported rather than
+smoothed over. Collapsing the last two would hide a broken brain behind an
+incomplete install. What \texttt{verified} does not assert is as load-bearing
+as what it does: it says the evidence \emph{exists}, never that the derived
+claim \emph{holds over it}. The \texttt{locator} is free text no check
+inspects, and whether the cited region supports the block's content is a
+semantic question outside this protocol, the same boundary
+Section~\ref{sec:injection} draws for content. Traceability, reaching the
+bytes a claim names, is what R1 delivers; auditing the claim against them is
+work the protocol hands to whoever holds the bundle.
 
 \texttt{authorship} reports the second of the two checks of
 Section~\ref{sec:verification}, separately from \texttt{verified}, which reports
@@ -4131,9 +4137,11 @@ an implementation SHOULD make each of them the default rather than an option:
   (Section~\ref{sec:injection}).
   \item Treat a successful verification as saying nothing about freshness
   (Section~\ref{sec:freshness}).
-  \item Treat a verified Evidence Bundle as sound, never as complete: absence
-  of evidence in a result is not evidence of absence in the brain
-  (Section~\ref{sec:query-guarantees}).
+  \item Treat a verified Evidence Bundle as sound, never as complete: absence of
+evidence in a result is not evidence of absence in the brain
+(Section~\ref{sec:query-guarantees}).   \item Treat \texttt{citation:
+verified} as existence and addressability of the cited evidence, never as
+confirmation that the claim holds over it (Section~\ref{sec:evidence-bundle}).
 \end{itemize}
 
 % ===========================================================================
