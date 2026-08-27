@@ -436,10 +436,8 @@ Skill / MCP / CLI / API   & Contract for an external LLM to query and ingest. \\
 \subsection{What already exists}
 
 The industry is already solving pieces of this problem, but no single artifact
-yet integrates a canonical source, typed memories, fine-grained versioning,
-portable indices, modular distribution, and a model-agnostic access protocol.
-Table~\ref{tab:related} positions the most relevant efforts. We then discuss
-them in turn.
+yet integrates all six of the requirements of Section~\ref{sec:requirements}.
+Table~\ref{tab:related} positions the most relevant efforts.
 
 \begin{table}[htbp]
 \centering
@@ -482,9 +480,7 @@ manifests, descriptors, and blobs whose structure is itself an external Merkle
 DAG~\cite{oci_image_manifest, oci_descriptor, oras_artifacts}. Neither is an
 alternative to a knowledge architecture, because one standardizes a call and the
 other a transport, and this design adopts both instead of competing with them
-(Sections~\ref{sec:distribution} and~\ref{sec:protocol}). They return in
-Section~\ref{sec:composition}, where the question is what a stack assembled out
-of them still fails to provide.
+(Sections~\ref{sec:distribution} and~\ref{sec:protocol}).
 
 \subsection{Six requirements that must hold simultaneously}
 \label{sec:requirements}
@@ -565,19 +561,17 @@ for four reasons.
 \paragraph{Identity does not compose.}
 Each layer carries its own notion of what a thing is: a commit, a pipeline
 output, a registry digest. None of them binds a retrieved item to the source it
-came from and to the snapshot it belongs to. That binding is exactly what an
-Evidence Bundle asserts when it reports \texttt{verified}, and it is why this
-architecture separates three levels of hashes
+came from and to the snapshot it belongs to. That binding is what an Evidence Bundle asserts when it reports
+\texttt{verified}, and why this architecture separates three levels of hashes
 (Section~\ref{sec:anatomy}) instead of borrowing one. Verifiability is a
 property of the whole path from source to answer, so it cannot be added by a
 layer that only sees its own inputs.
 
 \paragraph{Granularity mismatch.}
 Version control versions files; knowledge changes at the granularity of a
-claim. A corrected definition, its evidence, and the procedures that depended
-on it are not a diff over lines, and recovering that structure from a file
-history means reconstructing after the fact what the ingestion step already
-knew. R3 asks for versioning where the knowledge is, which is the block.
+claim. A corrected definition, its evidence, and the procedures that depended on it
+are not a diff over lines, and recovering that structure from a file history
+means reconstructing what the ingestion step already knew. R3 asks for versioning where the knowledge is, which is the block.
 
 \paragraph{The layering runs the wrong way.}
 In a retrieval pipeline the index is the product: documents are consumed to
@@ -589,9 +583,8 @@ pipeline whose output is its state has no representation of the knowledge that
 survives it.
 
 \paragraph{Access and transport standardize the edges, not the middle.}
-MCP standardizes the call and OCI standardizes the bytes, which is why both
-appear in this design rather than being replaced by it. Neither says what is on
-the other side of the call or inside the blob. Two MCP servers over the same
+MCP standardizes the call and OCI standardizes the bytes. Neither says what is
+on the other side of the call or inside the blob. Two MCP servers over the same
 corpus share no verifiable state, and two registries holding the same brain
 agree on digests while knowing nothing about modules, memory types, or
 snapshots. The missing piece sits between them: a format for typed,
@@ -599,22 +592,20 @@ content-addressed blocks plus a contract for reading and extending them.
 
 \paragraph{Why now.}
 The same argument would have been premature a few years ago, when the model,
-the pipeline, and the application were usually chosen once. Today embedding
-models are deprecated on a timescale of months and agent frameworks turn over
-faster still, so the useful life of accumulated knowledge routinely exceeds the
-life of the tools that produced it. The container ecosystem went through this
+the pipeline, and the application were chosen once. Today embedding models are
+deprecated on a timescale of months and agent frameworks turn over faster
+still, so accumulated knowledge routinely outlives the tools that produced it. The container ecosystem went through this
 transition: engines and registries became interchangeable only once image
 identity and packaging were specified independently of any implementation.
 LLM knowledge is at the earlier stage, with capable engines and no shared
 artifact, and this paper argues for specifying the artifact.
 
-\paragraph{Complementarity.}
-Boltzmann Brain is therefore complementary rather than competing. It can
-consume OKF-style canonical sources, borrow hybrid retrieval ideas from
-GraphRAG and Cognee, expose an MCP interface, and ride on OCI for
-distribution, while contributing the missing piece: a versioned, typed,
-model-agnostic \emph{bundle} whose modules can be installed and updated
-selectively, and whose contents remain verifiable no matter which model reads
+\paragraph{Complementarity.} Boltzmann Brain is therefore complementary rather
+than competing: it can consume OKF-style canonical sources, borrow hybrid
+retrieval ideas from GraphRAG and Cognee, expose an MCP interface, and ride on
+OCI for distribution, while contributing the missing piece, a versioned,
+typed, model-agnostic \emph{bundle} whose modules install and update
+selectively and whose contents stay verifiable no matter which model reads
 them.
 
 % ===========================================================================
