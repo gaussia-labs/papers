@@ -3305,6 +3305,9 @@ ingestion batch, or actor), a drop may be stated over a \emph{set}: everything
 produced by a given ingestion, or everything derived by a given model version.
 That is the natural response to deliberately wrong knowledge introduced in
 bulk, and it reuses the same cascade rather than inventing a second mechanism.
+It reaches exactly the modules drop reaches: for poisoned episodic content,
+out of its reach by construction, Section~\ref{sec:bulk-poisoning} states the
+remedy.
 
 \subsection{Companion mechanisms}
 
@@ -4004,15 +4007,27 @@ the bytes that produced it, and every derived block names its producer, so a
 poisoned batch can be excluded as a set.
 
 \subsection{Poisoning in bulk, and its remedy}
+\label{sec:bulk-poisoning}
 
 Because provenance records the producer of every derived block at the granularity
 of a model, pipeline, ingestion batch, or actor,
 \texttt{drop\_by\_producer} (Section~\ref{sec:drop}) can exclude everything a
 compromised producer made in one operation. This is remediation and not
 prevention, and it should be described as such: it shortens the window during
-which poisoned knowledge is served, and it does not stop the poisoning. Its value
-is that the window is bounded by a query over provenance rather than by an
-audit of a corpus.
+which poisoned knowledge is served, and it does not stop the poisoning. Its value is that the window is bounded by a query over provenance rather than
+by an audit of a corpus. The operation's reach has a boundary, and the batch
+case is where it bites: a drop stated over a set is still a drop, and drop
+does not touch the episodic module, while processing tasks may legitimately
+mint episodic candidates (Section~\ref{sec:validation}). Poisoned episodes are
+remediated by mass \emph{supersession} over the same provenance query,
+correcting the record rather than rewriting it, exactly as the append-only
+rule prescribes. Two consequences are stated rather than implied. Superseded
+episodes remain in the composition and remain retrievable under
+\texttt{include\_superseded}, so a consumer that opts into superseded content
+is opting into poisoned-then-corrected content as well. And where an episode's
+bytes are themselves the harm, personal data or unlawful content rather than
+wrong knowledge, the path is the one Section~\ref{sec:forgetting} already
+names for episodic content: redaction under policy, not drop.
 
 Signatures narrow the window further in one specific way. Because a snapshot's
 author is authenticated, a poisoned commit is attributable to a key rather than to
