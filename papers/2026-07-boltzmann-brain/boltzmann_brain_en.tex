@@ -353,8 +353,7 @@ systems~\cite{kumaran2016cls, goode2018engram, yassa2011pattern,
 knierim2016tracking, rebola2017pattern, nader2009reconsolidation,
 redondo2011tagging, ryan2022forgetting}. The architecture takes \emph{general
 principles} from that literature, not literal equivalences between brain
-regions and databases; Figure~\ref{fig:biology} maps each principle borrowed
-onto the decision it shaped.
+regions and databases.
 
 Complementary learning systems (CLS) theory distinguishes a fast,
 hippocampus-associated mechanism from slower, integrative cortical
@@ -374,60 +373,16 @@ evidence~\cite{paolicelli2011pruning, davis2017forgetting, ryan2022forgetting};
 Section~\ref{sec:forgetting} develops both into concrete retention and erasure
 mechanisms.
 
-\begin{figure}[t]
-\centering
-\begin{tikzpicture}[node distance=6mm and 22mm]
-  \node[bluebox, text width=4.2cm] (b1) {\footnotesize Fast vs.\ slow\\ learning (CLS)};
-  \node[bluebox, below=of b1, text width=4.2cm] (b2) {\footnotesize Hippocampal\\ indexing};
-  \node[bluebox, below=of b2, text width=4.2cm] (b3) {\footnotesize Pattern separation\\ \& completion};
-  \node[bluebox, below=of b3, text width=4.2cm] (b4) {\footnotesize Reconsolidation};
-  \node[bluebox, below=of b4, text width=4.2cm] (b5) {\footnotesize Synaptic pruning \&\\ active forgetting};
-
-  \node[accentbox, right=of b1, text width=4.6cm] (a1) {\footnotesize Split episodic capture\\ from semantic consolidation};
-  \node[accentbox, right=of b2, text width=4.6cm] (a2) {\footnotesize Indices separate from\\ knowledge blocks};
-  \node[accentbox, right=of b3, text width=4.6cm] (a3) {\footnotesize Dedup, identity resolution,\\ hybrid retrieval};
-  \node[accentbox, right=of b4, text width=4.6cm] (a4) {\footnotesize Controlled revision;\\ supersede without deleting};
-  \node[accentbox, right=of b5, text width=4.6cm] (a5) {\footnotesize Drop with Merkle rebuild;\\ prune unreachable blocks};
-
-  \draw[flowa] (b1) -- (a1);
-  \draw[flowa] (b2) -- (a2);
-  \draw[flowa] (b3) -- (a3);
-  \draw[flowa] (b4) -- (a4);
-  \draw[flowa] (b5) -- (a5);
-  \node[lbl, above=1mm of b1] {Biological principle};
-  \node[lbl, above=1mm of a1] {Architectural decision};
-\end{tikzpicture}
-\caption{Translation of biological memory principles into architectural
-decisions. The mapping is by analogy, not by literal correspondence between
-brain regions and system components.}
-\label{fig:biology}
-\end{figure}
-
 \subsection{Systems structures}
 
-Alongside biology, the architecture reuses well-understood systems structures.
-Table~\ref{tab:systems} lists each one and its contribution.
-
-\begin{table}[htbp]
-\centering
-\caption{Systems structures and their contribution to Boltzmann Brain.}
-\label{tab:systems}
-\begin{tabularx}{\textwidth}{lX}
-\toprule
-\textbf{Concept} & \textbf{Contribution to Boltzmann Brain} \\
-\midrule
-Content addressing        & The identity of a block derives from its content. \\
-Merkle DAG                & A root identifies the exact composition of a module. \\
-B\textsuperscript{+} tree & Exact lookup, hierarchies, and ordered range scans. \\
-Inverted index            & Lexical search over words and terms. \\
-Vector index              & Approximate retrieval by semantic similarity. \\
-Graph                     & Explicit relations, provenance, associative expansion. \\
-Mark-and-sweep collection & Reclaiming blocks unreachable from a retained root. \\
-OCI Artifact              & Interoperable packaging and distribution of modules. \\
-Skill / MCP / CLI / API   & Contract for an external LLM to query and ingest. \\
-\bottomrule
-\end{tabularx}
-\end{table}
+Alongside biology, the architecture reuses well-understood systems structures:
+content addressing for block identity, a Merkle DAG so that one root
+identifies a module's exact composition, B\textsuperscript{+} trees for exact
+lookup and ordered range scans, an inverted index for lexical search, a vector
+index for approximate retrieval by similarity, a graph for explicit relations
+and provenance, mark-and-sweep collection for reclaiming blocks unreachable
+from a retained root, OCI Artifacts for packaging and distribution, and a
+skill, MCP, CLI or API surface as the contract an external LLM speaks.
 
 % ===========================================================================
 \section{Related Work and the Case for a New Protocol}
@@ -719,44 +674,10 @@ Section~\ref{sec:drop} a query over provenance.
 \section{Anatomy of a Module}
 \label{sec:anatomy}
 
-A module carries three responsibilities that coexist in the same physical unit
-(Figure~\ref{fig:anatomy}): \emph{blocks} contain knowledge; the \emph{Merkle
-DAG} defines which blocks form a version; \emph{indices} make it possible to
-find blocks without scanning all of them.
-
-\begin{figure}[t]
-\centering
-\begin{tikzpicture}[node distance=7mm and 18mm]
-  % Blocks
-  \node[smallbox] (k1) {\texttt{K1}};
-  \node[smallbox, below=4mm of k1] (k2) {\texttt{K2}};
-  \node[smallbox, below=4mm of k2] (k3) {\texttt{K3}};
-  \node[draw=gaussiadark, rounded corners=3pt, thick, fit=(k1)(k2)(k3),
-        inner sep=8pt, label={[lbl]above:Knowledge blocks}] (blocks) {};
-
-  % Merkle DAG
-  \node[accentbox, right=of blocks] (root) {\texttt{root v2}};
-  \node[lbl, above=1mm of root] {Merkle DAG};
-  \draw[flowa] (root) -- (k1);
-  \draw[flowa] (root) -- (k2);
-  \draw[flowa] (root) -- (k3);
-
-  % Indices
-  \node[bluebox, right=of root, text width=3.5cm] (idx)
-    {\footnotesize hash map $\cdot$ B\textsuperscript{+} tree\\
-     inverted $\cdot$ vector $\cdot$ graph};
-  \node[lbl, above=1mm of idx] {Indices (derived)};
-
-  % Indices are derived from the blocks: route the arrow below the root box
-  \draw[flow, dashed] (blocks.south) -- ++(0,-7mm) -| (idx.south);
-  \node[lbl] at ($(blocks.south)!0.5!(idx.south) - (0,10.5mm)$)
-    {derived from blocks};
-\end{tikzpicture}
-\caption{Blocks, a Merkle DAG, and indices coexist within the same module. The
-Merkle root pins the exact set of blocks that make up a version; indices are
-derived and can be rebuilt from the blocks.}
-\label{fig:anatomy}
-\end{figure}
+A module carries three responsibilities in the same physical unit:
+\emph{blocks} contain knowledge; the \emph{Merkle DAG} defines which blocks
+form a version; \emph{indices} make it possible to find blocks without
+scanning all of them.
 
 \subsection{Knowledge blocks}
 \label{sec:blocks}
@@ -1316,25 +1237,12 @@ travelling catalog still sees the pile.
 \subsection{Three levels of hashes}
 \label{sec:hashes}
 
-A recurring source of confusion is that the same cryptographic algorithm is
-used for three different kinds of identity. Table~\ref{tab:hashes} separates
-them.
-
-\begin{table}[htbp]
-\centering
-\caption{Three levels of hashes.}
-\label{tab:hashes}
-\begin{tabularx}{\textwidth}{lXl}
-\toprule
-\textbf{Level} & \textbf{What it identifies} & \textbf{Example} \\
-\midrule
-Block hash  & A logical unit of knowledge.          & \texttt{sha256:FOURIER\_CONCEPT} \\
-Merkle root & The logical composition of a module.  & \texttt{sha256:SEMANTIC\_ROOT\_V7} \\
-OCI digest  & Any transportable file: a published blob, a manifest, or one of
-              the protocol's own documents. & \texttt{sha256:OCI\_MODULE\_BLOB} \\
-\bottomrule
-\end{tabularx}
-\end{table}
+A recurring source of confusion is that the same cryptographic algorithm
+identifies three different kinds of thing. A \emph{block hash} identifies a
+logical unit of knowledge; a \emph{Merkle root} identifies the logical
+composition of a module; an \emph{OCI digest} identifies any transportable
+file, whether a published blob, a manifest, or one of the protocol's own
+documents.
 
 The three use the same algorithm and do not identify the same kind of thing.
 The composition and snapshot documents of Sections~\ref{sec:composition-doc}
@@ -2614,30 +2522,9 @@ The LLM never writes directly to the Merkle DAGs or to the indices.
 \section{Ingestion via an External LLM}
 \label{sec:ingestion}
 
-Ingestion separates the preservation of a source from its interpretation
-(Figure~\ref{fig:ingestion}): the original is registered deterministically,
-then semantic processing is delegated to the user's LLM.
-
-\begin{figure}[t]
-\centering
-\begin{tikzpicture}[node distance=8mm and 15mm]
-  \node[smallbox] (src) {source\\ (PDF, code, \dots)};
-  \node[accentbox, right=of src] (reg) {canonical\\ registration};
-  \node[bluebox, right=of reg] (task) {processing\\ task + schema};
-  \node[bluebox, below=10mm of task] (llm) {external LLM\\ proposes blocks};
-  \node[accentbox, left=of llm] (val) {validate \&\\ commit};
-  \node[smallbox, left=of val] (snap) {new snapshot\\ / OCI version};
-
-  \draw[flow] (src) -- (reg);
-  \draw[flow] (reg) -- (task);
-  \draw[flow] (task) -- (llm);
-  \draw[flow] (llm) -- (val);
-  \draw[flow] (val) -- (snap);
-\end{tikzpicture}
-\caption{The brain conserves and validates; the external LLM interprets and
-proposes blocks. Only validated candidates are committed and versioned.}
-\label{fig:ingestion}
-\end{figure}
+Ingestion separates the preservation of a source from its interpretation: the
+original is registered deterministically, then semantic processing is
+delegated to the user's LLM.
 
 \subsection{Canonical registration}
 
@@ -2799,30 +2686,8 @@ protocol prescribes the following steps:
 
 For now, Boltzmann Brain is conceived as a medium for LLMs. The user converses
 with their usual LLM; a skill or adapter lets that LLM query the brain through
-the protocol. The brain returns raw or semi-raw knowledge, and the LLM turns it
-into an answer appropriate for the task (Figure~\ref{fig:query}).
-
-\begin{figure}[t]
-\centering
-\begin{tikzpicture}[node distance=8mm and 16mm]
-  \node[bluebox] (user) {user\\ question};
-  \node[bluebox, right=of user] (llm) {external LLM\\ \texttt{brain.search}};
-  \node[accentbox, right=of llm] (rt) {protocol\\ hybrid retrieval};
-  \node[smallbox, below=10mm of rt, text width=3.4cm]
-    (idx) {\footnotesize B\textsuperscript{+} $\cdot$ lexical\\ vector $\cdot$ graph};
-  \node[accentbox, below=10mm of llm] (eb) {Evidence\\ Bundle};
-
-  \draw[flow] (user) -- (llm);
-  \draw[flow] (llm) -- (rt);
-  \draw[flow] (rt) -- (idx);
-  \draw[flow] (idx) -- (eb);
-  \draw[flowa] (eb) -- (llm);
-\end{tikzpicture}
-\caption{The external LLM queries the brain and contextualizes the returned
-Evidence Bundle. The protocol combines indices, verifies hashes, and returns
-data rather than prose.}
-\label{fig:query}
-\end{figure}
+the protocol. The brain returns raw or semi-raw knowledge, and the LLM turns it into an
+answer appropriate for the task.
 
 \subsection{Query flow}
 
