@@ -840,10 +840,14 @@ The leaves of the DAG are \texttt{block\_id}s (content hashes); each internal
 node hashes the hashes of its children; the root hashes down to everything
 below it. Changing any block changes its hash, which changes every ancestor up to the
 root. Three operations follow. \emph{Integrity} is checked by
-recomputing hashes from the leaves up and comparing the root. \emph{Membership}
-of a single block is proven with the sibling hashes along its path to the root
-(a Merkle proof of size $O(\log n)$), without downloading the rest of the
-module. \emph{Differencing} two versions is a set operation over their sorted leaf
+recomputing hashes from the leaves up and comparing the root. \emph{Membership} of a single block is proven with the sibling hashes along
+its path to the root (a Merkle proof of size $O(\log n)$), without downloading
+the rest of the module. A proof MUST carry the block's leaf index and the tree
+size, because the two are verifier inputs rather than metadata: the tree's
+shape is a function of its size, so which side each sibling combines on, and
+where the path terminates, are decided by them, and a bare sibling list is
+ambiguous between roots. RFC 9162's verification algorithm takes
+both~\cite{rfc9162}. \emph{Differencing} two versions is a set operation over their sorted leaf
 lists, linear in the size of the module and cheap at that size, since each
 leaf is a single digest. The tree is needed for the first two operations only,
 which is why nothing beyond the leaves and the root is persisted.
@@ -857,20 +861,30 @@ that matter for security and for the guarantees claimed above:
 
 \begin{itemize}[leftmargin=1.4em]
   \item \textbf{Domain separation.} Leaves are hashed with a \texttt{0x00}
-  prefix and internal nodes with \texttt{0x01}, so a leaf hash can never be
-  mistaken for a node hash.
+prefix and internal nodes with \texttt{0x01}, so a leaf hash can never be
+mistaken for a node hash; RFC 9162 attributes second-preimage resistance to
+this separation.
   \item \textbf{Unambiguous splitting.} The tree splits at the largest power of
-  two below $n$. The naive alternative, duplicating the last node on an odd
-  level, admits a second-preimage attack in which two distinct leaf sets produce
-  the same root~\cite{cve2012merkle}, which would defeat the whole point of
-  identifying a version by its root.
+  two below $n$. The naive alternative, duplicating the last node on an odd level, is the
+defect behind CVE-2012-2459, in which two distinct leaf lists produce the same
+root~\cite{cve2012merkle}, defeating the whole point of identifying a version
+by its root.
 \end{itemize}
 
 \paragraph{Leaves are sorted.}
 Leaves MUST be deduplicated and ordered by their digest before the tree is
-built. Sorting makes the root a function of the \emph{set} of blocks, which is the
-claim that two parties who assembled the same blocks obtain the same root. A layout that preserved insertion order would break
-that claim while looking correct in every single-writer test.
+built. Sorting makes the root a function of the \emph{set} of blocks, which is
+the claim that two parties who assembled the same blocks obtain the same root.
+A layout that preserved insertion order would break that claim while looking
+correct in every single-writer test. Both are producer obligations, and a
+verifier MUST enforce them: a composition document whose \texttt{block\_ids}
+are not in strictly ascending digest order MUST be rejected, exactly as an
+unknown layout is (below). Without that check one
+leaf set admits many roots, since every permutation yields a different,
+internally consistent root; that is equivocation, and it defeats the claim the
+sorting exists to make. Strictly ascending order enforces deduplication in the
+same comparison, and it fixes what the root commits to: a set rather than a
+multiset, with multiplicity deliberately not representable.
 
 \paragraph{The layout identifier.}
 The construction is named \texttt{rfc6962-sorted/1}, and that identifier travels
@@ -879,7 +893,10 @@ built under a layout it does not implement MUST refuse it rather than
 recompute a root that would not be comparable. The name keeps its historical form: RFC 9162 obsoletes RFC 6962 but defines
 the same tree, with the same empty hash, the same prefixes, and the same
 split, so a root computed under either reading is byte-identical. The suffix
-moves if the construction ever does.
+moves if the construction ever does. The sorted, deduplicated leaf list is
+this specification's own modification of the RFC's construction, with no
+published analysis behind the reordering to lean on, which is why the ordering
+check above is a verifier obligation rather than a convention.
 
 \paragraph{What is persisted.}
 Only the sorted leaf list and the root are stored. Internal nodes are
@@ -2506,7 +2523,8 @@ installed snapshot; none of them requires a running service.}
   & \texttt{root\_of}      & Report the Merkle root of one installed module. \\
   & \texttt{open\_index}   & Open an index of a named kind over a module. \\
   & \texttt{resolve}       & Resolve a \texttt{block\_id} to its bytes, verifying the hash. \\
-  & \texttt{prove}         & Produce an inclusion proof of a block in a module. \\
+  & \texttt{prove}         & Produce an inclusion proof of a block in a module:
+sibling hashes, leaf index, and tree size. \\
   & \texttt{resolvability} & Report which blocks are resolvable and which are tombstoned. \\
   & \texttt{verify}        & Recompute the whole hash structure of an installed snapshot (Section~\ref{sec:verification}). \\
   & \texttt{browse}        & Walk an axis of the catalog and list what is filed under a class (Section~\ref{sec:catalog}). \\
@@ -3863,9 +3881,13 @@ NFC/NFD pair yielding two distinct blocks, and a duplicate-key document
   \item \textbf{Block identifiers}: envelopes and the \texttt{block\_id} each
   one hashes to.
   \item \textbf{Merkle roots}: leaf sets and the root the construction of
-  Section~\ref{sec:merkle} produces, including the empty set and odd-sized
-  trees, where a wrong split is otherwise easy to miss.
-  \item \textbf{Inclusion proofs}: proofs and the roots they must reconstruct.
+Section~\ref{sec:merkle} produces, including the empty set, odd-sized trees,
+where a wrong split is otherwise easy to miss, a permuted composition that
+MUST be rejected, and a duplicate-carrying input with the sorted-unique root
+it collapses to.
+  \item \textbf{Inclusion proofs}: proofs, each carrying its leaf index and tree
+size, and the roots they must reconstruct, for a tree of size one, a
+power-of-two size, and an odd size.
   \item \textbf{Signatures}: snapshots, published test key pairs, namespaces,
   and the verdict a verifier MUST reach, including a signature valid under the
   wrong namespace, a key authorized at one chain position and retired at another,
