@@ -703,10 +703,11 @@ provenance record is a \emph{declared} identifier; the signature over the
 snapshot that committed the record is what turns it into an authenticated
 identity (Section~\ref{sec:authenticity}).
 
-Provenance is not free-form annotation. It carries six kinds of record
-(Table~\ref{tab:provenance}), and the set is closed because every other part of
-the protocol depends on being able to ask a precise question of it: which blocks
-cite this evidence, what produced this block, and what was removed by whom.
+Provenance is not free-form annotation. It carries seven kinds of record
+(Table~\ref{tab:provenance}), and the set is closed because every other part
+of the protocol depends on being able to ask a precise question of it: which
+blocks cite this evidence, what produced this block, what verdict admitted it,
+and what was removed by whom.
 
 \begin{table}[htbp]
 \centering
@@ -720,8 +721,10 @@ Registration  & A source was incorporated: by which actor, when, from where, and
 Normalization & A normalized view was produced from an original by a named deterministic pipeline. \\
 Derivation    & A block was derived from cited evidence by a named producer, within a named task. \\
 Supersession  & A block takes precedence over an earlier one. \\
-Demotion      & A block's retrieval priority was reduced, without removing it. \\
-Removal       & A block was excluded, pruned, or redacted: by which mechanism, actor, and reason. \\
+Demotion      & A block's retrieval priority was reduced, without removing it.
+\\ Validation    & A committed block received its verdict: which checks ran
+and within which task. \\ Removal       & A block was excluded, pruned, or
+redacted: by which mechanism, actor, and reason. \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -2914,8 +2917,14 @@ block.
 Every candidate receives exactly one of four verdicts
 (Table~\ref{tab:verdicts}), and only \texttt{VALIDATED} candidates MAY be
 committed. A verdict MUST be accompanied by the issues that produced it, each
-naming the check that fired and, where applicable, the field within the payload,
-so that a rejection is actionable.
+naming the check that fired and, where applicable, the field within the
+payload, so that a rejection is actionable. A verdict is not a write-path
+ephemeral, either: every block that enters a composition MUST be accompanied
+by a \emph{validation} record in provenance (Section~\ref{sec:modules}) naming
+the verdict, the checks that ran, and the task, so that ``it was validated''
+is a claim a consumer verifies in the signed composition rather than takes
+from whoever committed. Recording the verdicts of candidates that were never
+committed is OPTIONAL.
 
 \begin{table}[htbp]
 \centering
@@ -3441,6 +3450,19 @@ property that makes exclusion trustworthy, so exposing it as a knob would make
 every other guarantee in this section conditional on a setting.
 \end{callout}
 
+\paragraph{The ledger is load-bearing, so it is checkable.}
+The rule above would be honor-system if provenance could quietly lose the
+records themselves: the provenance module is not canonical, so dropping a
+removal record requires only \texttt{commit}, and the ledger Principle~8
+promises would be whatever the last writer left in it. The invariant that
+closes this is verifier-side. For every block absent from a module's
+composition relative to the snapshot's first parent, a removal record naming
+that block MUST exist and be reachable from the current snapshot, and a
+verifier MUST reject a snapshot that fails the check. The rule needs no
+special case for the ledger itself: a dropped removal record is itself a
+block absent relative to the parent, so its own removal record is required,
+and silence about silence is not representable.
+
 % ===========================================================================
 \section{Divergence and Reconciliation}
 \label{sec:divergence}
@@ -3864,9 +3886,9 @@ Steal one authorized private key &
   (Section~\ref{sec:trust-root}). &
   Signing snapshots within that key's scopes until a compromise record is
   published (Section~\ref{sec:revocation}). \\
-Get content into an ingested source &
-  Having it committed without a verdict, or without provenance naming its
-  producer (Section~\ref{sec:validation}). &
+Get content into an ingested source & Having it committed without a checkable
+verdict: the validation record and the producer travel in the signed
+composition (Section~\ref{sec:validation}). &
   Having it faithfully preserved, retrieved, and replayed into a model
   (Section~\ref{sec:injection}). \\
 Read a published brain &
