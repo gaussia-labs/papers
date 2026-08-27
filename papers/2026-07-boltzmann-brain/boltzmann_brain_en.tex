@@ -138,8 +138,8 @@ stored as typed, content-addressed blocks organized into five memory modules:
 canonical, episodic, semantic, procedural, and provenance. Each module bundles
 its blocks, a Merkle DAG that pins the exact composition of a version, and its
 indices. We separate three levels of hashes, for block identity, module
-composition, and transportable file, and package each module as a separate OCI
-Artifact, which yields selective installation and incremental updates.
+composition, and transportable file, and package each module as a separate OCI Artifact, which yields selective
+installation and updates at module granularity.
 Interaction happens through the \emph{Boltzmann Protocol}: the LLM proposes
 candidate blocks and consumes Evidence Bundles, while the protocol governs what
 is committed and returns evidence, never prose. Canonical blocks are the root of
@@ -210,7 +210,7 @@ This work contributes:
   observed evidence, and a module anatomy of content-addressed blocks, Merkle
   DAGs and indices (Section~\ref{sec:anatomy}).
   \item A distribution model over OCI Artifacts giving selective installation
-  and incremental updates (Section~\ref{sec:distribution}), and a
+and module-granular updates (Section~\ref{sec:distribution}), and a
   model-agnostic protocol with explicit ingestion and query contracts
   (Sections~\ref{sec:protocol}--\ref{sec:query}).
   \item A treatment of how knowledge leaves a brain: drop with Merkle rebuild
@@ -461,9 +461,9 @@ useful, must hold \emph{at the same time and over the same artifact}:
   \item[R4. Derived, replaceable indices.] Indices are views that can be
   rebuilt or replaced when an engine or embedding model changes. Without this,
   knowledge dies with the model that indexed it.
-  \item[R5. Selective and incremental distribution.] A consumer can install one
-  module and update only what changed. Without this, sharing knowledge means
-  shipping everything, every time.
+  \item[R5. Selective, module-granular distribution.] A consumer can install one
+module, and an update re-transfers only the modules that changed. Without
+this, sharing knowledge means shipping everything, every time.
   \item[R6. Model-agnostic access contract.] A stable, declarative contract
   lets interchangeable models query and contribute. Without this, the store is
   reachable only through whoever wrote the integration.
@@ -830,13 +830,13 @@ descent through stored nodes.
 Because blocks are shared across versions. When a new version reuses unchanged
 blocks, those blocks are shared by hash instead of duplicated, so a node may be
 referenced by more than one root. The structure is therefore a directed acyclic
-graph, as in Git's object store. This structural sharing makes incremental updates cheap
-(Section~\ref{sec:distribution}): a new version adds
-only the changed blocks and a new root, and reuses everything else by
-reference. What sharing guarantees is the reuse of blocks, which are the bytes a consumer
-would otherwise have to transfer; how much of the structure above the leaves
-is reused depends on the layout an implementation chooses, and internal nodes
-carry no content of their own.
+graph, as in Git's object store. This structural sharing makes new versions cheap to store: a version adds only
+the changed blocks and a new root, and reuses everything else by reference.
+Sharing guarantees the reuse of blocks in local storage; what an update
+re-transfers is decided by the distribution encoding, whose granularity is the
+module (Section~\ref{sec:distribution}). How much of the structure above the
+leaves is reused depends on the layout an implementation chooses, and internal
+nodes carry no content of their own.
 
 
 
@@ -1370,10 +1370,17 @@ Signature record & \texttt{application/vnd.gaussia.boltzmann.signature.v1+json} 
 \end{table}
 
 A module layer is a tar archive holding the module's composition document and
-its block bytes. Both the tar and the compression stream MUST be written
-deterministically, so that two clients packing the same module produce
-byte-identical layers. Without that, registry deduplication silently stops
-working and every publish transfers blobs the registry already holds. Gzip is
+its block bytes. An implementation MUST NOT repack a module whose composition
+is unchanged: it MUST reuse the previous layer digest, which is what keeps
+registry deduplication working across publishes. Packing SHOULD be
+deterministic within an implementation, so repeated packs of one composition
+yield one digest; byte-identical layers across implementations are
+deliberately not required, because the formats do not permit requiring them.
+RFC 1951 leaves block boundaries and match strategy to the compressor, and RFC
+1952 leaves header fields implementation-dependent, so two conforming encoders
+legitimately produce different streams for the same
+input~\cite{rfc1951,rfc1952}. The reference implementation packs with the PAX
+format, zeroed timestamps, sorted entries, and a pinned gzip level. Gzip is
 specified rather than a denser codec because it is universally available: a
 client that needed an extra dependency to read a published brain would be
 trading portability for a few percent.
@@ -1431,15 +1438,21 @@ Selection is only efficient if each module is a separate OCI blob or artifact.
 If everything is mixed into a single file, the whole file must be downloaded.
 \end{callout}
 
-\subsection{Incremental update}
+\subsection{Update granularity}
 
-If only the semantic module changes, the new manifest can reuse the digests of
-the remaining modules. The consumer downloads only the new semantic blob;
-inside it, the Merkle root reveals which logical blocks changed.
+The unit of transfer is the module. If only
+the semantic module changes, the new manifest reuses the digests of the
+remaining modules, and the consumer downloads only the new semantic blob. It
+downloads that blob whole, however small the change inside it: what is
+incremental at the block level is local storage and differencing, not
+transfer. Once the blob is on disk, comparing Merkle roots identifies exactly
+which logical blocks changed. This version claims no finer transfer
+granularity; per-block blobs would trade one download for thousands of
+registry round-trips, and modules are where selective installation lives.
 
 \begin{table}[htbp]
 \centering
-\caption{An incremental update touches only the changed module's digest.}
+\caption{An update touches only the changed module's digest.}
 \label{tab:incremental}
 \begin{tabular}{lcccc}
 \toprule
@@ -3371,11 +3384,11 @@ already specified.
   URL. This protocol defines no notification mechanism, in the same way version
   control defines no pull requests. The snapshot is the protocol-level artifact;
   the workflow around it belongs to the forge.
-  \item \textbf{The maintainer fetches it.} Because everything is
-  content-addressed, the transfer is only the delta: the contributor's brain
-  shares every block reachable from \texttt{S7} with the maintainer's, byte for
-  byte, so only genuinely new blocks and the new snapshot move. A contribution of
-  forty blocks transfers forty blocks, not a brain.
+  \item \textbf{The maintainer fetches it.} Because everything is content-addressed, the transfer is bounded by the delta:
+modules the contribution did not touch keep their digests and do not move, and
+within a fetched module every block reachable from \texttt{S7} is already
+present locally, byte for byte. A contribution of forty semantic blocks costs
+a fetch of the changed modules, not a brain.
   \item \textbf{Nothing has changed yet.} The maintainer holds two histories
 locally while the published brain is untouched: \texttt{fetch} retrieves a
 remote history without moving the local pointer, which is why it is separate
