@@ -2646,12 +2646,16 @@ key later is an ordinary trust-root revision signed by the first.
 Anyone may install the brain; a few may publish it. Reading is a registry
 concern and requires nothing from this section, and the trust root governs whose
 authorship a consumer \emph{accepts} rather than who is physically able to
-write. Maintainers hold \texttt{commit}, a subset holds \texttt{govern},
-canonical drops are restricted to keys holding \texttt{drop:canonical}, and
-outside contributors hold \texttt{propose}, which is enough for their snapshots
-to be attributable and not enough for one to be mistaken for the published
-state. Section~\ref{sec:divergence} takes that arrangement and defines what
-happens when a contribution actually arrives.
+write. Maintainers hold \texttt{commit}, a subset holds \texttt{govern}, canonical
+drops are restricted to keys holding \texttt{drop:canonical}, and recurring
+outside contributors MAY be listed with \texttt{propose}, which is enough for
+their snapshots to be marked as proposals and not enough for one to be
+mistaken for the published state. A stranger needs no listing at all: SSHSIG
+embeds the public key, so a snapshot signed by a key the trust root has never
+seen is \emph{attributable}, its author identified by the signature with no
+authority attached, and Section~\ref{sec:divergence} defines how such a
+proposal is judged. What requires a governance act is granting authority,
+never being heard.
 
 \subsection{What this deliberately does not solve}
 
@@ -2784,7 +2788,10 @@ grouped by what a caller can do about them.}
 \multicolumn{2}{@{}l}{\emph{Authenticity} (Section~\ref{sec:authenticity})} \\
 \quad Unsigned brain        & A signature was required and none is present. \\
 \quad Signature invalid     & The signature does not verify over the snapshot's canonical bytes, or was made under another namespace. \\
-\quad Unauthorized key      & The signing key is absent from the trust root in force at this position. \\
+\quad Unauthorized key      & The signing key is absent from the trust root in
+force, on a snapshot presented as the current state; the same key on an
+offered proposal is reported as attributable instead
+(Section~\ref{sec:divergence}). \\
 \quad Insufficient scope    & The key is authorized, but not for the change this snapshot made. \\
 \quad Retired key           & The key was authorized once and not at this position; earlier signatures by it stand. \\
 \quad Compromised key       & The key's signatures are withdrawn from a recorded position onward. \\
@@ -3772,9 +3779,13 @@ already specified.
   \item \textbf{The contributor extends the brain.} They install it at snapshot
   \texttt{S7}, no permission needed because the repository is public, ingest
   sources locally, and commit. Their snapshot names \texttt{S7} as its parent.
-  They sign it with their own key, holding \texttt{propose}, and publish it to a
-  repository they control. A contribution is therefore a signed snapshot, in
-  another repository, whose parent belongs to the maintainer's history. The
+  They sign it with their own key and publish it to a repository they control.
+If the maintainer has listed that key with \texttt{propose}, the snapshot
+arrives marked as a proposal; a key the trust root has never seen serves as
+well, because the signature itself identifies its author, and the snapshot is
+attributable (below). Authority is not what a contribution needs; identity is.
+A contribution is therefore a signed snapshot, in another repository, whose
+parent belongs to the maintainer's history. The
   parent pointer is the entire link, exactly as a branch is in version control.
   There is no proposal object and no pending state.
   \item \textbf{They notify the maintainer.} Out of band: an issue, a message, a
@@ -3840,12 +3851,24 @@ their own history.}
 A contributor's snapshot is a legitimately signed Boltzmann snapshot in every
 respect, which is the problem: without a scope distinguishing it, a consumer who
 pulled from the contributor's repository, or from a mirror that indexed it, would
-have no basis for treating it as anything other than the brain's current state. A
-key holding only \texttt{propose} produces snapshots that are attributable,
+have no basis for treating it as anything other than the brain's current state. A key holding only \texttt{propose} produces snapshots that are attributable,
 verifiable, and explicitly not the published head. A conforming implementation
 MUST refuse to treat a \texttt{propose}-signed snapshot as a brain's current
 state unless a verification policy explicitly permits it
-(Section~\ref{sec:verification}).
+(Section~\ref{sec:verification}). A key absent from the trust root altogether
+needs one more word, because the vocabulary of Section~\ref{sec:authenticity}
+would otherwise collapse a stranger's proposal into an attack. A snapshot
+whose signature verifies but whose key the trust root does not list is
+\emph{attributable}: the author is cryptographically identified, and no
+authority attaches. The distinction is positional. Offered as a proposal, an
+attributable snapshot is judged exactly as a \texttt{propose}-signed one,
+block by block through validation, since candidate blocks derive no authority
+from their proposer anyway (Section~\ref{sec:validation}). Presented as a
+brain's current state, by a registry, a mirror, or the contributor's own tag,
+the same snapshot MUST be reported as an unauthorized key, exactly as Case~2
+demands. An implementation MUST distinguish, in reporting, an unknown key on
+an offered proposal from an unknown key on a head: the first is how an open
+project hears from strangers, the second is an impersonation attempt.
 
 \subsection{Publishing back from a partial install}
 \label{sec:partial-publish}
