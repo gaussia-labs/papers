@@ -2684,6 +2684,18 @@ verifies offline against the pinned trust root. It can still \emph{withhold},
 serving an older, legitimately signed snapshot indefinitely. Signing does not
 address this, and Section~\ref{sec:freshness} states it as a limitation.
 
+\paragraph{Confidentiality is out of scope.}
+\label{sec:no-confidentiality}
+Nothing in this version encrypts knowledge, controls who may read a module,
+or supports selective disclosure. A brain is distributed whole, per module,
+to anyone the registry lets read, and the trust root governs whose writes a
+consumer accepts, never who reads (Section~\ref{sec:trust-root}). The
+consequence for retention is concrete: crypto-shredding is not a removal
+mechanism here, because there is no encrypted-block scheme for it to act on,
+and a deployment whose content must be unreadable to some parties has a
+requirement this version does not meet. Section~\ref{sec:conclusion} carries
+it as an open question.
+
 % ===========================================================================
 \section{The Boltzmann Protocol}
 \label{sec:protocol}
@@ -3332,9 +3344,11 @@ forget; it reclaims what no retained composition still needs.
 \paragraph{Redaction of referenced content.}
 Only when content that a retained root still references must be destroyed does
 the protocol remove bytes: a \emph{tombstone} deletes the bytes and leaves an
-auditable record; \emph{crypto-shredding} destroys the encryption
-key~\cite{nist2014sanitization}; a \emph{lineage rewrite} rebuilds history so
-the block was never referenced. Redaction is the path for destroying retained
+auditable record, or a \emph{lineage rewrite} rebuilds history so the block
+was never referenced. Crypto-shredding, destroying a key instead of the
+ciphertext it protects~\cite{nist2014sanitization}, is deliberately not among
+them: it presupposes an encrypted-block scheme, and this version defines none
+(Section~\ref{sec:no-confidentiality}). Redaction is the path for destroying retained
 canonical bytes under law or safety policy. It is not the cleanup path for a
 wrongly ingested source or for wrong semantic knowledge: those are dropped.
 
@@ -3374,8 +3388,7 @@ Pruning & Bytes of blocks in no retained root. & No &
 \multicolumn{4}{@{}l}{\emph{Redaction (retained root still names the block):}} \\
 \quad Tombstone & The bytes; identity kept. & No &
   Root intact; block unresolvable. \\
-\quad Crypto-shredding & The plaintext, via the key. & No &
-  Root intact; ciphertext still verifies. \\
+
 \quad Lineage rewrite & The block and its history. & No &
   Prior roots invalidated; new lineage published. \\
 \bottomrule
@@ -3960,10 +3973,10 @@ verdict: the validation record and the producer travel in the signed
 composition (Section~\ref{sec:validation}). &
   Having it faithfully preserved, retrieved, and replayed into a model
   (Section~\ref{sec:injection}). \\
-Read a published brain &
-  Learning anything the publisher did not put in it. &
-  Recovering approximations of dropped content from a stale travelling index
-  (Section~\ref{sec:indices-derived}). \\
+Read a published brain & Nothing by this protocol: confidentiality is out of
+scope, and a published brain is readable by whoever can pull it
+(Section~\ref{sec:no-confidentiality}). & Recovering approximations of dropped
+content from a stale travelling index (Section~\ref{sec:indices-derived}). \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -4249,7 +4262,7 @@ replayed with the protocol's own verification stamp attached. Verification means
 that it is true or safe to act on.
 
 \paragraph{What the protocol still owes.}
-Six questions remain, smaller and better specified than the two just closed.
+Seven questions remain, smaller and better specified than the two just closed.
 
 \begin{itemize}[leftmargin=1.4em]
   \item \textbf{Freshness.} Everything verifies offline, so a hostile registry
@@ -4261,6 +4274,11 @@ remains open is first contact. Signing does not fix this. The known answers,
   log~\cite{rfc9162}, both require a party outside the artifact, which is why
   neither is adopted here without deciding what to trade for it. This is the
   largest of the six.
+  \item \textbf{Confidentiality and selective disclosure.} Everything in a
+  brain is readable by whoever can pull it. Encrypted blocks, read control,
+  and selective disclosure are unaddressed, and crypto-shredding stays out of
+  the removal table until an encryption scheme exists for it to act on
+  (Section~\ref{sec:no-confidentiality}).
   \item \textbf{Removal from a travelling index.} The protocol now requires an
   index to be bound to its composition, and requires a stale one to be omitted
   or reported rather than shipped. It does not define deletion of a single entry,
