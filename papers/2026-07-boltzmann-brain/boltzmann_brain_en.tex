@@ -427,6 +427,39 @@ GraphRAG and Cognee illustrate the convergence toward hybrid representations
 that mix text, vectors, and graphs~\cite{graphrag_indexing, graphrag_query,
 cognee_concepts, cognee_cognify}.
 
+\paragraph{The older families this design descends from.}
+The closest prior art predates every row above.
+\emph{Nanopublications}~\cite{groth2010anatomy} package one assertion with
+structurally mandatory provenance as a minimal citable unit, and their
+\emph{trusty URIs}~\cite{kuhn2014trusty} are content hashes over a normalized
+serialization, tagged with a versioned algorithm identifier, the same move the
+envelope makes with \texttt{serialization}; the identifier's range of
+verifiability is explicitly recursive, so a tree of trusty URIs carries its
+history the way hash-linked snapshots do, and nanopublication \emph{indexes}
+name sets of units by reference rather than containment, which is the
+composition document's shape~\cite{kuhn2016decentralized}. Where the family
+stops is where this design begins: normalization is defined at the RDF-graph
+level rather than over bytes, there is no Merkle root and no $O(\log n)$
+membership proof, an index appends to at most one predecessor where
+\texttt{parents} is a list, and the trusty-URI specification defines no
+signature mechanism (later nanopublication practice attaches one), so scoped
+keys, quorum rotation and positional revocation have no analogue. On
+provenance vocabulary, W3C PROV~\cite{provo2013} is the standard; the six
+closed record types of Section~\ref{sec:modules} trade its generality for
+records a verifier can check mechanically, and a deployment that needs
+interoperable provenance can express them in PROV terms without loss.
+
+\paragraph{Memory typing is a convention, not a contribution.}
+On the typing axis this paper claims no novelty. The episodic/semantic
+distinction is Tulving's~\cite{tulving1972}, the cognitive architectures added
+procedural memory and store all three as separate long-term
+memories~\cite{laird1987soar}, and CoALA imports exactly that typing as a
+design framework for LLM agents, surveying 2022--2023 systems that already
+implemented typed writable memory~\cite{sumers2024coala}. What this design
+adds on the axis is the two modules the convention does not carry, canonical
+evidence and closed-form provenance, and the verifiable representation all
+five share.
+
 % Re-check both concurrent-work citations immediately before submission:
 % PAM is v1-only (Aug 2026); memorywire is at v4 (12 Aug 2026) and reserves
 % the right to break its format through v0.5.
