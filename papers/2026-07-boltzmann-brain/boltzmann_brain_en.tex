@@ -644,25 +644,22 @@ cleanly from below.
 
 The module holds two content-addressed layers. The \emph{original} is the blob
 as observed (PDF, repository archive, conversation export, image, audio, and so
-on). An optional \emph{normalized view} is a deterministic transform of that
-blob (plain text, Markdown, or a structured extract) produced by a named
-pipeline whose identity is recorded in provenance. Normalized views live in
-canonical rather than semantic memory because they are still evidence for
-ingestion, not consolidated knowledge. Both layers are addressed by hash, so
-re-registering an identical original is a no-op.
+on). An optional \emph{normalized view} is a deterministic transform of that blob
+(plain text, Markdown, or a structured extract) produced by a named pipeline
+whose identity is recorded in provenance. Normalized views live in canonical
+rather than semantic memory because they are still evidence for ingestion, not
+consolidated knowledge. Both layers are addressed by hash.
 
 A canonical block therefore carries only what its bytes determine: its
 \texttt{block\_id}, media type, size, and optionally the digest of its
-normalized view. It carries nothing else, because its identity must depend on
-the observed bytes alone for re-registering an identical original to be a no-op:
-if the registering actor or the moment of registration were part of the hashed
-content, two people incorporating the same source would obtain two different
-blocks and deduplication would never trigger. Everything historical or
-actor-dependent is recorded in the provenance module instead, which is where
-relations that depend on who acted and when already live: the license or
-retention policy under which the source is held, the actor who incorporated it,
-the timestamp, and the supersession edge toward an earlier edition when a new
-one replaces it (Sections~\ref{sec:ingestion} and~\ref{sec:forgetting}).
+normalized view. It carries nothing else, so that re-registering an identical original is a
+no-op: if the registering actor or the moment of registration entered the
+hashed content, two people incorporating the same source would obtain
+different blocks and deduplication would never trigger. Everything historical
+or actor-dependent is recorded in the provenance module instead: the license
+or retention policy under which the source is held, the actor who incorporated
+it, the timestamp, and the supersession edge toward an earlier edition when a
+new one replaces it (Sections~\ref{sec:ingestion} and~\ref{sec:forgetting}).
 
 \paragraph{Episodic module.}
 Records events and experiences with time, context, participants, outcome, and
@@ -681,13 +678,13 @@ success criteria, for example how to obtain the Fourier coefficients of a
 given function.
 
 \paragraph{Provenance module.}
-Connects derived blocks to evidence, transformations, and tool versions. It is
-key to answering what must be recomputed when a source changes, and it is the
-ledger of removals: every drop, cascade, and redaction is recorded there so
-that exclusion stays auditable (Section~\ref{sec:forgetting}). The actor named
-in a provenance record is a \emph{declared} identifier; what turns it into an
-authenticated identity is the signature over the snapshot that committed the
-record (Section~\ref{sec:authenticity}), which is why authenticity belongs in this specification.
+Connects derived blocks to evidence, transformations, and tool versions. It
+answers what must be recomputed when a source changes, and it is the ledger of
+removals: every drop, cascade, and redaction is recorded there so that
+exclusion stays auditable (Section~\ref{sec:forgetting}). The actor named in a
+provenance record is a \emph{declared} identifier; the signature over the
+snapshot that committed the record is what turns it into an authenticated
+identity (Section~\ref{sec:authenticity}).
 
 Provenance is not free-form annotation. It carries six kinds of record
 (Table~\ref{tab:provenance}), and the set is closed because every other part of
@@ -712,13 +709,11 @@ Removal       & A block was excluded, pruned, or redacted: by which mechanism, a
 \end{tabularx}
 \end{table}
 
-Two distinctions inside these records carry weight elsewhere. An \emph{actor} is
-who performed an operation, while a \emph{producer} is what generated a derived
-block, recorded at the granularity a batch invalidation needs: a model, a
-pipeline, an ingestion batch, or an actor. That granularity is what makes
-Section~\ref{sec:drop}'s batch invalidation expressible as a query over provenance. And because registration records
-live here rather than inside canonical blocks, re-registering an identical
-source deduplicates while still recording that a second actor incorporated it.
+Two distinctions carry weight elsewhere. An \emph{actor} is who performed an
+operation, while a \emph{producer} is what generated a derived block, recorded
+at the granularity a batch invalidation needs: a model, a pipeline, an
+ingestion batch, or an actor. That granularity makes the batch invalidation of
+Section~\ref{sec:drop} a query over provenance.
 
 % ===========================================================================
 \section{Anatomy of a Module}
