@@ -427,6 +427,39 @@ GraphRAG and Cognee illustrate the convergence toward hybrid representations
 that mix text, vectors, and graphs~\cite{graphrag_indexing, graphrag_query,
 cognee_concepts, cognee_cognify}.
 
+\paragraph{The older families this design descends from.}
+The closest prior art predates every row above.
+\emph{Nanopublications}~\cite{groth2010anatomy} package one assertion with
+structurally mandatory provenance as a minimal citable unit, and their
+\emph{trusty URIs}~\cite{kuhn2014trusty} are content hashes over a normalized
+serialization, tagged with a versioned algorithm identifier, the same move the
+envelope makes with \texttt{serialization}; the identifier's range of
+verifiability is explicitly recursive, so a tree of trusty URIs carries its
+history the way hash-linked snapshots do, and nanopublication \emph{indexes}
+name sets of units by reference rather than containment, which is the
+composition document's shape~\cite{kuhn2016decentralized}. Where the family
+stops is where this design begins: normalization is defined at the RDF-graph
+level rather than over bytes, there is no Merkle root and no $O(\log n)$
+membership proof, an index appends to at most one predecessor where
+\texttt{parents} is a list, and the trusty-URI specification defines no
+signature mechanism (later nanopublication practice attaches one), so scoped
+keys, quorum rotation and positional revocation have no analogue. On
+provenance vocabulary, W3C PROV~\cite{provo2013} is the standard; the six
+closed record types of Section~\ref{sec:modules} trade its generality for
+records a verifier can check mechanically, and a deployment that needs
+interoperable provenance can express them in PROV terms without loss.
+
+\paragraph{Memory typing is a convention, not a contribution.}
+On the typing axis this paper claims no novelty. The episodic/semantic
+distinction is Tulving's~\cite{tulving1972}, the cognitive architectures added
+procedural memory and store all three as separate long-term
+memories~\cite{laird1987soar}, and CoALA imports exactly that typing as a
+design framework for LLM agents, surveying 2022--2023 systems that already
+implemented typed writable memory~\cite{sumers2024coala}. What this design
+adds on the axis is the two modules the convention does not carry, canonical
+evidence and closed-form provenance, and the verifiable representation all
+five share.
+
 % Re-check both concurrent-work citations immediately before submission:
 % PAM is v1-only (Aug 2026); memorywire is at v4 (12 Aug 2026) and reserves
 % the right to break its format through v0.5.
@@ -509,8 +542,11 @@ gap this paper addresses.
 \centering
 \caption[Design coverage of the six requirements]{Design coverage of the six
 requirements of Section~\ref{sec:requirements}: \cfull\ full, \cpart\ partial,
-\cnone\ absent. The last row states the design intent of this version, not a
-validated implementation.}
+\cnone\ absent. Marks in the last row are grounded in the golden vectors of
+Section~\ref{sec:conformance} and the reference implementation rather than in
+design intent, and R1 is partial by the protocol's own admission: cited
+evidence is verified to exist and be addressable, while whether a claim holds
+over it is not checked (Section~\ref{sec:evidence-bundle}).}
 \label{tab:coverage}
 \begin{tabular}{lcccccc}
 \toprule
@@ -521,9 +557,9 @@ Open Knowledge Format         & \cfull & \cpart & \cpart & \cnone & \cnone & \cn
 GBrain                        & \cfull & \cpart & \cpart & \cpart & \cpart & \cpart \\
 Microsoft GraphRAG            & \cpart & \cpart & \cnone & \cpart & \cnone & \cnone \\
 Cognee                        & \cpart & \cpart & \cnone & \cpart & \cnone & \cpart \\
-Vector store + RAG pipeline   & \cnone & \cnone & \cnone & \cnone & \cnone & \cnone \\
+Vector store + RAG pipeline   & \cnone & \cnone & \cnone & \cpart & \cnone & \cpart \\
 \midrule
-Boltzmann Brain (this work)   & \cfull & \cfull & \cfull & \cfull & \cfull & \cfull \\
+Boltzmann Brain (this work)   & \cpart & \cfull & \cfull & \cfull & \cfull & \cfull \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -2054,6 +2090,24 @@ so an attacker holding a stolen key can backdate freely; Git has the same hole.
 The \texttt{created\_at} field of a snapshot is no better, being written by
 whoever built it.
 
+\paragraph{The deployed alternative, and what refusing it costs.}
+Rejecting self-asserted timestamps does not settle the question, because the
+deployed alternative is time nobody in the transaction asserts. C2PA, the
+closest comparable standard, adjudicates exactly this problem, signature
+validity after key expiry or revocation, with trusted third parties: every
+claim is timestamped by an RFC 3161 authority, signing certificates chain to a
+curated trust list, revocation is checked through OCSP, and validators are
+instructed to use the attested time, not the current time, when deciding
+whether the credential was valid, precisely so that claims can be validated
+indefinitely~\cite{c2pa_spec, rfc3161}. That buys post-expiry adjudication
+forever, and its price is the standing third party: a timestamp authority at
+signing time, revocation infrastructure at validation time, and a consumer
+that can reach both. This design refuses the third party, because the offline
+property of Section~\ref{sec:integrity-total} is the thing it will not trade,
+and takes the other side of the same bargain: positional validity needs
+nobody outside the artifact, and in exchange there is no external authority
+to appeal to when governance itself fails.
+
 The hash structure supplies the missing ordering. Snapshots are chained by
 digest, so a snapshot's position in the chain cannot be forged: inserting or
 moving one would change every descendant's parent digest, and those are already
@@ -2088,9 +2142,18 @@ compromised key, no longer trusted'' are different facts about the same
 snapshot, and collapsing them either breaks history or hides an attack.
 
 Hash-linking was introduced in Section~\ref{sec:snapshot} for versioning, and
-supplies the unforgeable ordering that revocation needs; Certificate
-Transparency reaches for the same property through the same
-structure~\cite{rfc9162}.
+supplies the unforgeable ordering that revocation needs. The closest
+precedents are clock-free in the same way. Keybase sigchains decide a
+statement's validity by its position, and ``old links remain valid even if
+their signing keys are revoked later'', which is this section's retirement
+semantics~\cite{keybase_sigchain}; OpenSSH key revocation lists revoke by
+serial, identifier or hash, with no validity window~\cite{openssh_krl}; and
+The Update Framework orders trust-root rotations by monotonic version number,
+each new root signed by thresholds of both its predecessor and itself, which
+is the quorum rule of Section~\ref{sec:trust-root} under another
+name~\cite{tuf_spec}. Certificate Transparency reaches for the ordering
+property through the same tree structure, at ecosystem scale and with a log
+operator this design does not have~\cite{rfc9162}.
 
 \begin{figure}[t]
 \centering
@@ -3000,6 +3063,7 @@ the composition and remain verifiable; what supersession changes is
 accessibility (Section~\ref{sec:forgetting}).
 
 \subsection{Evidence Bundle}
+\label{sec:evidence-bundle}
 
 The brain's result is not a written answer. It is a data contract carrying the
 matching blocks and everything needed to audit them:
