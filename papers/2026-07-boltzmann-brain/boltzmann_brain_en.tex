@@ -772,13 +772,32 @@ The serialization is therefore normative, and it is named in every envelope so
 that a future one can coexist with it rather than replace it.
 
 This version uses \textbf{JCS}, the JSON Canonicalization Scheme of RFC
-8785~\cite{rfc8785}: object keys sorted by UTF-16 code point, no insignificant
+8785~\cite{rfc8785}: object keys sorted by UTF-16 code unit, no insignificant
 whitespace, and a fixed number format. Its identifier is \texttt{jcs/1}. JCS was
 chosen over a binary encoding because a block is a small structured record and
 the protocol is meant to be implemented in several languages: a canonical form
 that a human can read and grep is worth more here than compactness, and RFC 8785
 has independent implementations across the language ecosystems a client is
 likely to be written in.
+
+\paragraph{Identity and signature verification are different dependents.}
+Canonical bytes do two jobs here, and adjacent standards object to one of
+them. For \emph{identity} there is no alternative: \texttt{block\_id} exists
+so that two parties who registered the same knowledge compute the same name,
+and that is what a canonical form is for. For \emph{signature verification},
+DSSE and the in-toto attestation framework recommend against it: an envelope
+should avoid depending on canonicalization for security and should not require
+the verifier to parse the payload before verifying, because a parser
+disagreement between two payloads sharing one canonical encoding becomes a
+signature bypass~\cite{dsse,intoto_envelope}. C2PA answers the same objection
+by constraining the producer instead: claims are serialized under RFC 8949's
+deterministic-encoding requirements and signed as stored, with no verifier-side
+re-encoding~\cite{c2pa_spec}. This design lands on that side of the line.
+Canonical form is an encoder obligation; stored and transported bytes are the
+canonical bytes (Section~\ref{sec:blocks}, and Section~\ref{sec:distribution}
+for the config blob); and a verifier checks canonicality and then hashes and
+verifies the bytes as stored, never trusting a parse-and-re-serialize round
+trip for the answer.
 
 \begin{callout}[title=Two value domains are excluded from a payload]
 JCS defines float serialization through ECMAScript rules that are subtly hard to
@@ -789,6 +808,22 @@ Either divergence would mean two conforming clients computing different
 rejected when a block is constructed, rather than at hashing time. Represent a
 decimal as a string, or as an integer scaled by a documented factor.
 \end{callout}
+
+\paragraph{Three precisions RFC 8785 leaves to its caller.}
+Key order is by UTF-16 \emph{code unit}, not code point: outside the Basic
+Multilingual Plane the two orders differ, because surrogates sort below the
+code points they encode, and an implementation sorting by code point silently
+computes different identifiers for the same knowledge. A JSON object carrying
+the same key twice MUST be rejected when a block is constructed: RFC 8785
+presupposes I-JSON input, parsers disagree on which duplicate survives, and
+either choice silently changes the bytes. Input that is not valid UTF-8, or
+that contains lone surrogates, MUST be rejected for the same reason. And JCS
+does not normalize Unicode: a payload in NFC and the same text in NFD are
+different bytes, and therefore two blocks with one meaning. This version keeps
+it that way, because normalizing inside the identity computation would mean
+the stored bytes are not the bytes that were registered; a producer SHOULD
+normalize text to NFC before constructing a block, and the burden sits with
+the producer.
 
 \subsection{Merkle DAG}
 \label{sec:merkle}
@@ -805,10 +840,14 @@ The leaves of the DAG are \texttt{block\_id}s (content hashes); each internal
 node hashes the hashes of its children; the root hashes down to everything
 below it. Changing any block changes its hash, which changes every ancestor up to the
 root. Three operations follow. \emph{Integrity} is checked by
-recomputing hashes from the leaves up and comparing the root. \emph{Membership}
-of a single block is proven with the sibling hashes along its path to the root
-(a Merkle proof of size $O(\log n)$), without downloading the rest of the
-module. \emph{Differencing} two versions is a set operation over their sorted leaf
+recomputing hashes from the leaves up and comparing the root. \emph{Membership} of a single block is proven with the sibling hashes along
+its path to the root (a Merkle proof of size $O(\log n)$), without downloading
+the rest of the module. A proof MUST carry the block's leaf index and the tree
+size, because the two are verifier inputs rather than metadata: the tree's
+shape is a function of its size, so which side each sibling combines on, and
+where the path terminates, are decided by them, and a bare sibling list is
+ambiguous between roots. RFC 9162's verification algorithm takes
+both~\cite{rfc9162}. \emph{Differencing} two versions is a set operation over their sorted leaf
 lists, linear in the size of the module and cheap at that size, since each
 leaf is a single digest. The tree is needed for the first two operations only,
 which is why nothing beyond the leaves and the root is persisted.
@@ -822,20 +861,30 @@ that matter for security and for the guarantees claimed above:
 
 \begin{itemize}[leftmargin=1.4em]
   \item \textbf{Domain separation.} Leaves are hashed with a \texttt{0x00}
-  prefix and internal nodes with \texttt{0x01}, so a leaf hash can never be
-  mistaken for a node hash.
+prefix and internal nodes with \texttt{0x01}, so a leaf hash can never be
+mistaken for a node hash; RFC 9162 attributes second-preimage resistance to
+this separation.
   \item \textbf{Unambiguous splitting.} The tree splits at the largest power of
-  two below $n$. The naive alternative, duplicating the last node on an odd
-  level, admits a second-preimage attack in which two distinct leaf sets produce
-  the same root~\cite{cve2012merkle}, which would defeat the whole point of
-  identifying a version by its root.
+  two below $n$. The naive alternative, duplicating the last node on an odd level, is the
+defect behind CVE-2012-2459, in which two distinct leaf lists produce the same
+root~\cite{cve2012merkle}, defeating the whole point of identifying a version
+by its root.
 \end{itemize}
 
 \paragraph{Leaves are sorted.}
 Leaves MUST be deduplicated and ordered by their digest before the tree is
-built. Sorting makes the root a function of the \emph{set} of blocks, which is the
-claim that two parties who assembled the same blocks obtain the same root. A layout that preserved insertion order would break
-that claim while looking correct in every single-writer test.
+built. Sorting makes the root a function of the \emph{set} of blocks, which is
+the claim that two parties who assembled the same blocks obtain the same root.
+A layout that preserved insertion order would break that claim while looking
+correct in every single-writer test. Both are producer obligations, and a
+verifier MUST enforce them: a composition document whose \texttt{block\_ids}
+are not in strictly ascending digest order MUST be rejected, exactly as an
+unknown layout is (below). Without that check one
+leaf set admits many roots, since every permutation yields a different,
+internally consistent root; that is equivocation, and it defeats the claim the
+sorting exists to make. Strictly ascending order enforces deduplication in the
+same comparison, and it fixes what the root commits to: a set rather than a
+multiset, with multiplicity deliberately not representable.
 
 \paragraph{The layout identifier.}
 The construction is named \texttt{rfc6962-sorted/1}, and that identifier travels
@@ -844,7 +893,10 @@ built under a layout it does not implement MUST refuse it rather than
 recompute a root that would not be comparable. The name keeps its historical form: RFC 9162 obsoletes RFC 6962 but defines
 the same tree, with the same empty hash, the same prefixes, and the same
 split, so a root computed under either reading is byte-identical. The suffix
-moves if the construction ever does.
+moves if the construction ever does. The sorted, deduplicated leaf list is
+this specification's own modification of the RFC's construction, with no
+published analysis behind the reordering to lean on, which is why the ordering
+check above is a verifier obligation rather than a convention.
 
 \paragraph{What is persisted.}
 Only the sorted leaf list and the root are stored. Internal nodes are
@@ -1017,7 +1069,11 @@ the three-level separation exists to keep those straight.
 The \texttt{trust\_root} member holds the keys authorized to sign for this
 brain and the scopes each one holds. It lives here rather than in a module or
 a layer because it MUST reach every install, complete or partial
-(Section~\ref{sec:trust-root}).
+(Section~\ref{sec:trust-root}). The member MAY be absent, and absence and
+emptiness are equivalent: both mean a brain with no authorized keys, the
+zero-configuration case of Section~\ref{sec:integrity-total}. What neither
+means is deferral, and Section~\ref{sec:genesis} states the consequence of
+starting without one.
 
 \paragraph{Its timestamp decides nothing.}
 The \texttt{created\_at} member is descriptive. It is written by whoever built
@@ -1383,7 +1439,14 @@ The OCI manifest is small, and downloading it does not imply downloading any
 module. Making the snapshot the config blob means the same document is both the local
 state and the wire format, so publishing is a transfer rather than a
 conversion, and the trust root arrives with every install
-(Section~\ref{sec:trust-root}).
+(Section~\ref{sec:trust-root}). The config blob MUST be exactly the canonical
+serialization of the snapshot document, and a consumer MUST reject an artifact
+whose config is not in canonical form; the same rule applies to composition
+documents wherever they travel. This is the decoding check of
+Section~\ref{sec:blocks} applied one level up, and it is what keeps the
+digests that name a snapshot in three places, the OCI digest of the config,
+the entries of \texttt{parents}, and the digest a signature record covers, one
+value rather than three.
 Signatures are deliberately absent from this listing: they are published as
 separate artifacts referring to the manifest, for reasons
 Section~\ref{sec:publish-signed} gives.
@@ -1569,6 +1632,22 @@ fast-forwards. If it is not, the two brains have diverged, and the
 implementation MUST refuse the publish and report where the histories parted,
 rather than overwrite.
 
+\paragraph{The same comparison runs on pull.}
+The comparison is not the publisher's alone. On \texttt{pull}, when the
+consumer already holds a head for this brain, an implementation MUST compare
+the served head against it. If the served head is a strict ancestor of the
+held one, the remote has walked backward, and the implementation MUST refuse
+to adopt it, or require an explicit override, and MUST report a
+\emph{rollback}, distinguishable from a divergence and from any integrity
+failure (Table~\ref{tab:failures}). The state this check needs is already
+mandated: \emph{Origin} records the snapshot the remote was on at pull time,
+and the history layer resolves the ancestry. A consumer that pruned its local
+history below the served head cannot decide the question and MAY warn
+instead, the same undecidability the chain-truncated failure names. What the
+check buys is bounded in Section~\ref{sec:freshness}: it does not detect
+withholding from a newcomer; it makes walking a returning reader backward
+detectable with no party outside the artifact.
+
 Detecting divergence is a reader's duty and belongs here; deciding what to do
 next is a separate question, and Section~\ref{sec:divergence} answers it,
 including the partial install that cannot otherwise be published back
@@ -1722,10 +1801,43 @@ A signature MUST be produced over the canonical bytes of the snapshot document
 (Section~\ref{sec:serialization}) under the namespace
 \texttt{boltzmann.snapshot.v1}. The namespace is not decoration: it is what
 prevents cross-protocol replay, so that a signature a contributor produced for a
-Git commit cannot be presented as a Boltzmann signature, and a later version of
-this document can introduce a new namespace without invalidating signatures made
-under this one. A conforming implementation MUST reject a signature made under
-any other namespace.
+Git commit cannot be presented as a Boltzmann signature, and a later version of this document can introduce a new namespace without
+invalidating signatures made under this one. A conforming implementation MUST
+reject a signature made under any other namespace. The namespace separates
+protocols, not brains: a signature binds to bytes, and what separates two
+brains is their genesis (Section~\ref{sec:bootstrap}).
+
+\paragraph{The parameters are pinned.}
+SSHSIG admits \texttt{sha256} and \texttt{sha512} in its
+\texttt{hash\_algorithm} field and expresses no preference, and the field
+sits inside the signed blob, so two implementations that chose differently
+would produce non-interoperable signatures over identical knowledge, and the
+signature vectors of Section~\ref{sec:conformance} would not be reproducible.
+This protocol pins it: a signature MUST be produced with
+\texttt{hash\_algorithm} \texttt{sha512}, and a verifier MUST reject a
+signature naming any other value. Key types are bounded from below as well:
+SSHSIG itself already excludes legacy \texttt{ssh-rsa} signatures over SHA-1,
+and a verifier MUST additionally reject \texttt{ssh-dss} keys and RSA keys
+shorter than 3072 bits.
+
+\paragraph{What valid means for Ed25519 is pinned too.}
+Naming the key type does not settle what \emph{valid} means. RFC 8032
+sanctions two acceptance criteria for the same signature, calling the
+stricter check ``sufficient, but not required''~\cite{rfc8032}, and
+measurement across sixteen deployed libraries finds them disagreeing in both
+directions on the same inputs, most of them accepting encodings the RFC
+mandates rejecting~\cite{chalkias2020eddsa, zip215}. Worse for this section's
+purpose, the common lenient behaviour is not strongly binding: a signature
+that verifies under more than one public key is a signature its signer can
+later disown, and Section~\ref{sec:integrity-total} rests on the signature being
+what makes the provenance \texttt{actor} field mean anything. A conforming
+verifier therefore MUST check the cofactorless equation $[S]B = R + [k]A$,
+which is what nearly every deployed library computes and batch verification,
+the one reason to prefer the cofactored form, is not used here; MUST reject a
+signature whose scalar $S$ is not less than the group order; MUST reject
+non-canonical encodings of $R$ or of the public key; and MUST reject a public
+key of small order. Each is an inexpensive check on bytes, performable before
+any library call, and together they make one verdict reachable per vector.
 
 \begin{callout}[title={Non-goal: key management}]
 The private key never enters the protocol. It stays where SSH keys already live:
@@ -2066,8 +2178,19 @@ carries fewer signatures than the quorum it declares.
 A genesis snapshot MAY be unsigned, and a brain whose genesis is unsigned is a
 brain with no authorship from the outset. That is the zero-configuration case of
 Section~\ref{sec:integrity-total}, and it remains fully verifiable for integrity.
-What it cannot later acquire is a signed history: signatures attach to snapshots,
-and the snapshots that were committed unsigned stay unsigned.
+What it cannot later acquire is a signed history: signatures attach to
+snapshots, and the snapshots that were committed unsigned stay unsigned. The
+stronger consequence runs forward. A trust-root revision draws its quorum from
+the previous revision (Section~\ref{sec:trust-root}), and a chain whose
+genesis carried no trust root has no revision to draw from, ever: governance
+cannot be adopted later, and a snapshot that introduces a trust root onto such
+a chain MUST be reported as a quorum failure, because no quorum could have
+approved it and every authority downstream of it is asserted rather than
+granted. Acquiring governed authorship means creating a new brain whose
+genesis carries the trust root. An implementation SHOULD warn at \texttt{init}
+when no trust root is supplied: trying the protocol unsigned and adopting
+signatures once the project matters is the natural path, and it is exactly the
+path this closes.
 
 \subsection{Bootstrap: the one thing that comes from outside}
 \label{sec:bootstrap}
@@ -2102,6 +2225,24 @@ consumer who has never seen a given brain has no basis on which to reject an
 impostor's, and no arrangement of data inside the artifact can change that.
 Every comparable system carries this problem, and transparency logs are
 another answer to it~\cite{rfc9162, newman2022sigstore}.
+
+\paragraph{What a pin names: brain identity.}
+A pin needs a key to file itself under, and the protocol defines one: the
+identity of a brain is the digest of its genesis snapshot. Nothing else is
+stable enough to carry it. Repository and tag are locators a brain outlives
+(Section~\ref{sec:local-state} records them as local state), \texttt{labels}
+are re-assignable, and the trust root rotates; the genesis digest never
+changes, every snapshot chains back to it, and two heads belong to the same
+brain exactly when they resolve to the same genesis. A consumer's pin table
+MUST be keyed by genesis digest, and a pin record SHOULD retain that digest
+alongside the pinned revision, so a brain that moved repositories is
+recognized rather than re-anchored as a stranger. One consequence is stated
+rather than hidden: under content addressing, byte-identical geneses are one
+identity by definition, so a signature over a genesis binds to every
+deployment reusing those exact bytes, and the protocol-wide SSHSIG namespace
+does not separate them. A deployment that wants a distinct identity makes its
+genesis distinct, which \texttt{created\_at} already provides unless bytes
+are copied deliberately, and which \texttt{labels} can make explicit.
 
 Pinning also closes the last impersonation route
 (Section~\ref{sec:impersonation}).
@@ -2175,9 +2316,10 @@ rather than as one boolean.
   canonical bytes under the protocol namespace; confirm the key inside the
   signature is present in the trust root in force at that position in the chain;
   confirm the key holds every scope the snapshot's difference from its first
-  parent required; confirm the trust root's digest matches the pin, if one
-  exists; and confirm that the key is neither retired nor compromised at that
-  position.
+  parent required; confirm, where a pin exists, that the revision in force either matches the pin
+or descends from it through revisions each of which satisfied its
+predecessor's quorum; and confirm that the key is neither retired nor
+compromised at that position.
 \end{enumerate}
 
 \paragraph{Authority is a property of the chain.}
@@ -2198,6 +2340,23 @@ truncated it, the verifier MUST report \emph{chain truncated}
 deepest resolvable snapshot is undecidable. A partial install does not weaken
 the rule, because the history layer carries documents rather than modules, so
 ancestry resolves regardless of which modules are held.
+
+\paragraph{What the pin means after a rotation.}
+A pin is an anchor, not the current value. After a legitimate rotation the
+trust root in force no longer equals the pinned digest by construction, so
+digest equality would fail every valid rotation ever made; what verification
+checks is reachability, exactly as Case~1 answers it in
+Section~\ref{sec:cases}: revision~2 is trustworthy because the chain
+introducing it satisfied revision~1's quorum, and revision~1 is the pin. Two
+consequences are normative. A consumer MAY advance its pin to the newest
+validated revision, which bounds re-validation to the suffix it has not yet
+walked. Advanced or not, a consumer MUST refuse a head whose revision in
+force is an ancestor of a revision it has already validated, reported as a
+regression rather than as an unauthorized key, because walking governance
+backward is how a stolen, once-valid key becomes current again. Removing or
+replacing a pin is an operator action outside the protocol, exactly as
+deleting a \texttt{known\_hosts} entry is, and no data inside an artifact
+may cause it.
 
 Keeping them distinct matters in practice. A consumer with no trust anchor can
 still verify integrity completely, which is the zero-configuration case that
@@ -2464,7 +2623,8 @@ installed snapshot; none of them requires a running service.}
   & \texttt{root\_of}      & Report the Merkle root of one installed module. \\
   & \texttt{open\_index}   & Open an index of a named kind over a module. \\
   & \texttt{resolve}       & Resolve a \texttt{block\_id} to its bytes, verifying the hash. \\
-  & \texttt{prove}         & Produce an inclusion proof of a block in a module. \\
+  & \texttt{prove}         & Produce an inclusion proof of a block in a module:
+sibling hashes, leaf index, and tree size. \\
   & \texttt{resolvability} & Report which blocks are resolvable and which are tombstoned. \\
   & \texttt{verify}        & Recompute the whole hash structure of an installed snapshot (Section~\ref{sec:verification}). \\
   & \texttt{browse}        & Walk an axis of the catalog and list what is filed under a class (Section~\ref{sec:catalog}). \\
@@ -2560,11 +2720,17 @@ grouped by what a caller can do about them.}
 \quad Retired key           & The key was authorized once and not at this position; earlier signatures by it stand. \\
 \quad Compromised key       & The key's signatures are withdrawn from a recorded position onward. \\
 \quad Quorum failure        & A trust-root revision lacks the required \texttt{govern} signatures from the previous revision. \\
-\quad Trust root mismatch   & The trust root does not match the pinned digest. \\
+\quad Trust root mismatch   & The pinned revision is not reachable from the
+trust root in force through quorum-satisfying revisions. \\ \quad Revision
+regressed    & The revision in force is an ancestor of one this consumer
+already validated; governance walked backward. \\
 \quad Chain truncated       & The first-parent ancestry cannot be resolved back to the anchor; authority above the deepest resolvable snapshot is undecidable, integrity is unaffected. \\
 \midrule
 \multicolumn{2}{@{}l}{\emph{Reconciliation} (Section~\ref{sec:divergence})} \\
-\quad Divergence            & The remote is not an ancestor of the local snapshot. \\
+\quad Divergence            & The remote is not an ancestor of the local
+snapshot. \\ \quad Rollback              & The served head is a strict
+ancestor of the head this consumer already holds; the remote walked backward.
+\\
 \quad No common ancestor    & Two histories share no ancestor, so no three-way merge is defined. \\
 \quad Multiple merge bases & Criss-cross histories yield more than one best common ancestor, so the three-way merge is not determined. \\
 \quad Governance conflict   & The histories being reconciled carry different trust roots. \\
@@ -3713,8 +3879,17 @@ matches the pin, and the consumer is nonetheless reading a brain that was
 current months ago, possibly one from before a drop that removed knowledge for
 legal reasons.
 
-Nothing in this version detects that, and a consumer MUST NOT infer freshness
-from a successful verification. The two known answers are expiring metadata,
+That exposure splits in two, and only one half is irreducible. Against a
+returning consumer, one that already holds a newer head, serving an older one
+is a rollback, and Section~\ref{sec:local-state} requires refusing it: the
+ancestry the consumer holds is the evidence, and no party outside the artifact
+is needed. Revocation is where this bites, because a
+\texttt{compromised\_from} record published in a newer head disappears from
+view exactly when a consumer is walked backward past it; revocation is only as
+fresh as the head a consumer accepts. What remains irreducible is first
+contact, the consumer that held nothing: nothing in this version detects
+withholding there, and a consumer MUST NOT infer freshness from a successful
+verification. The two known answers for that half are expiring metadata,
 where a signed statement asserts a validity window and its absence is itself a
 signal, as in The Update Framework's timestamp role~\cite{samuel2010tuf}, and an
 append-only transparency log, where a consumer can check that the snapshot it was
@@ -3814,19 +3989,28 @@ places where a divergence would be invisible:
 
 \begin{itemize}[leftmargin=1.4em]
   \item \textbf{Serialization}: values and the exact canonical bytes they
-  produce, including the cases that MUST be rejected
-  (Section~\ref{sec:serialization}).
+produce, including the cases that MUST be rejected, an object key outside the
+Basic Multilingual Plane (where code-unit and code-point order differ), an
+NFC/NFD pair yielding two distinct blocks, and a duplicate-key document
+(Section~\ref{sec:serialization}).
   \item \textbf{Block identifiers}: envelopes and the \texttt{block\_id} each
   one hashes to.
   \item \textbf{Merkle roots}: leaf sets and the root the construction of
-  Section~\ref{sec:merkle} produces, including the empty set and odd-sized
-  trees, where a wrong split is otherwise easy to miss.
-  \item \textbf{Inclusion proofs}: proofs and the roots they must reconstruct.
+Section~\ref{sec:merkle} produces, including the empty set, odd-sized trees,
+where a wrong split is otherwise easy to miss, a permuted composition that
+MUST be rejected, and a duplicate-carrying input with the sorted-unique root
+it collapses to.
+  \item \textbf{Inclusion proofs}: proofs, each carrying its leaf index and tree
+size, and the roots they must reconstruct, for a tree of size one, a
+power-of-two size, and an odd size.
   \item \textbf{Signatures}: snapshots, published test key pairs, namespaces,
-  and the verdict a verifier MUST reach, including a signature valid under the
-  wrong namespace, a key authorized at one chain position and retired at another,
-  a key with a \texttt{compromised\_from} record, and a trust-root revision that
-  fails the quorum rule (Section~\ref{sec:authenticity}).
+and the verdict a verifier MUST reach, including a signature valid under the
+wrong namespace, a key authorized at one chain position and retired at
+another, a key with a \texttt{compromised\_from} record, a trust-root revision
+that fails the quorum rule, a signature whose \texttt{hash\_algorithm} is not
+\texttt{sha512}, and inputs on the Ed25519 acceptance boundary, a
+non-canonical encoding and a small-order public key, both of which MUST be
+rejected (Section~\ref{sec:authenticity}).
   \item \textbf{Reconciliation}: an ancestor composition and two branch
 compositions, with the set Equation~\ref{eq:merge} must produce, including the
 case where one side dropped what the other retained, and a criss-cross history
@@ -3902,8 +4086,10 @@ Six questions remain, smaller and better specified than the two just closed.
 
 \begin{itemize}[leftmargin=1.4em]
   \item \textbf{Freshness.} Everything verifies offline, so a hostile registry
-  cannot fabricate state, but it can withhold: serve an older, legitimately
-  signed snapshot indefinitely. Signing does not fix this. The known answers,
+cannot fabricate state, but it can withhold from a consumer that has seen
+nothing newer. Serving a returning consumer an ancestor of what it already
+holds is a rollback and is refused (Section~\ref{sec:local-state}), so what
+remains open is first contact. Signing does not fix this. The known answers,
   expiring metadata~\cite{samuel2010tuf} and an append-only transparency
   log~\cite{rfc9162}, both require a party outside the artifact, which is why
   neither is adopted here without deciding what to trade for it. This is the
