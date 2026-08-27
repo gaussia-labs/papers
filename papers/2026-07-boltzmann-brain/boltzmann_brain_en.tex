@@ -291,28 +291,27 @@ ingestion and receives Evidence Bundles during query.}
 
 \subsection{Problems this architecture addresses}
 
-Boltzmann Brain is designed to address a cluster of related failures in how
-LLM-era knowledge is currently stored and consumed:
+Boltzmann Brain addresses a cluster of related failures in how LLM-era
+knowledge is stored and consumed:
 
 \begin{itemize}[leftmargin=1.4em]
   \item Preventing knowledge from being trapped inside a particular provider,
   agent, or vector database.
-  \item Maintaining a source of evidence that allows knowledge to be
-  reindexed and reinterpreted as models and methods evolve.
+  \item Maintaining a source of evidence that can be reindexed and reinterpreted
+as models and methods evolve.
   \item Distinguishing concrete experiences, general facts, and procedures.
   \item Updating knowledge without losing history, provenance, or
   reproducibility.
-  \item Removing knowledge that is obsolete, costly, or legally untenable,
-  without silently compromising verifiability.
+  \item Removing obsolete, costly, or legally untenable knowledge without
+silently compromising verifiability.
   \item Distributing a complete brain or only selected modules.
-  \item Allowing interchangeable external LLMs to query and contribute
-  knowledge through a stable contract.
+  \item Letting interchangeable external LLMs query and contribute through a
+stable contract.
 \end{itemize}
 
 \subsection{Guiding principles}
 
-Ten principles follow from these problems and constrain every subsequent
-design decision:
+Ten principles follow, and they constrain every subsequent design decision:
 
 \begin{enumerate}[leftmargin=1.6em]
   \item Knowledge lives in blocks; indices are not the source of truth.
@@ -325,7 +324,7 @@ design decision:
   provider.
   \item Specialized structures compose; no single index answers every query.
   \item Queries are declarative and index-agnostic: callers ask for knowledge,
-  and the selection and combination of indices is left to the implementation.
+and the choice and combination of indices is left to the implementation.
   \item Forgetting is explicit and auditable: non-episodic modules support drop
   with Merkle rebuild and provenance cascade; dropping canonical evidence is
   privileged and always cascades; content may be redacted under policy, but
@@ -339,9 +338,9 @@ design decision:
   re-validated before it is committed.
 \end{enumerate}
 
-These principles are intentionally conservative. They privilege durability and
-auditability over convenience, and they treat the LLM as a powerful but
-replaceable interpreter rather than as the system of record.
+These principles are conservative by intent. They privilege durability and
+auditability over convenience, and treat the LLM as a powerful but replaceable
+interpreter rather than as the system of record.
 
 % ===========================================================================
 \section{Inspirations}
