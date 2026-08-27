@@ -1781,10 +1781,11 @@ A signature MUST be produced over the canonical bytes of the snapshot document
 (Section~\ref{sec:serialization}) under the namespace
 \texttt{boltzmann.snapshot.v1}. The namespace is not decoration: it is what
 prevents cross-protocol replay, so that a signature a contributor produced for a
-Git commit cannot be presented as a Boltzmann signature, and a later version of
-this document can introduce a new namespace without invalidating signatures made
-under this one. A conforming implementation MUST reject a signature made under
-any other namespace.
+Git commit cannot be presented as a Boltzmann signature, and a later version of this document can introduce a new namespace without
+invalidating signatures made under this one. A conforming implementation MUST
+reject a signature made under any other namespace. The namespace separates
+protocols, not brains: a signature binds to bytes, and what separates two
+brains is their genesis (Section~\ref{sec:bootstrap}).
 
 \paragraph{The parameters are pinned.}
 SSHSIG admits \texttt{sha256} and \texttt{sha512} in its
@@ -2194,6 +2195,24 @@ impostor's, and no arrangement of data inside the artifact can change that.
 Every comparable system carries this problem, and transparency logs are
 another answer to it~\cite{rfc9162, newman2022sigstore}.
 
+\paragraph{What a pin names: brain identity.}
+A pin needs a key to file itself under, and the protocol defines one: the
+identity of a brain is the digest of its genesis snapshot. Nothing else is
+stable enough to carry it. Repository and tag are locators a brain outlives
+(Section~\ref{sec:local-state} records them as local state), \texttt{labels}
+are re-assignable, and the trust root rotates; the genesis digest never
+changes, every snapshot chains back to it, and two heads belong to the same
+brain exactly when they resolve to the same genesis. A consumer's pin table
+MUST be keyed by genesis digest, and a pin record SHOULD retain that digest
+alongside the pinned revision, so a brain that moved repositories is
+recognized rather than re-anchored as a stranger. One consequence is stated
+rather than hidden: under content addressing, byte-identical geneses are one
+identity by definition, so a signature over a genesis binds to every
+deployment reusing those exact bytes, and the protocol-wide SSHSIG namespace
+does not separate them. A deployment that wants a distinct identity makes its
+genesis distinct, which \texttt{created\_at} already provides unless bytes
+are copied deliberately, and which \texttt{labels} can make explicit.
+
 Pinning also closes the last impersonation route
 (Section~\ref{sec:impersonation}).
 
@@ -2266,9 +2285,10 @@ rather than as one boolean.
   canonical bytes under the protocol namespace; confirm the key inside the
   signature is present in the trust root in force at that position in the chain;
   confirm the key holds every scope the snapshot's difference from its first
-  parent required; confirm the trust root's digest matches the pin, if one
-  exists; and confirm that the key is neither retired nor compromised at that
-  position.
+  parent required; confirm, where a pin exists, that the revision in force either matches the pin
+or descends from it through revisions each of which satisfied its
+predecessor's quorum; and confirm that the key is neither retired nor
+compromised at that position.
 \end{enumerate}
 
 \paragraph{Authority is a property of the chain.}
@@ -2289,6 +2309,23 @@ truncated it, the verifier MUST report \emph{chain truncated}
 deepest resolvable snapshot is undecidable. A partial install does not weaken
 the rule, because the history layer carries documents rather than modules, so
 ancestry resolves regardless of which modules are held.
+
+\paragraph{What the pin means after a rotation.}
+A pin is an anchor, not the current value. After a legitimate rotation the
+trust root in force no longer equals the pinned digest by construction, so
+digest equality would fail every valid rotation ever made; what verification
+checks is reachability, exactly as Case~1 answers it in
+Section~\ref{sec:cases}: revision~2 is trustworthy because the chain
+introducing it satisfied revision~1's quorum, and revision~1 is the pin. Two
+consequences are normative. A consumer MAY advance its pin to the newest
+validated revision, which bounds re-validation to the suffix it has not yet
+walked. Advanced or not, a consumer MUST refuse a head whose revision in
+force is an ancestor of a revision it has already validated, reported as a
+regression rather than as an unauthorized key, because walking governance
+backward is how a stolen, once-valid key becomes current again. Removing or
+replacing a pin is an operator action outside the protocol, exactly as
+deleting a \texttt{known\_hosts} entry is, and no data inside an artifact
+may cause it.
 
 Keeping them distinct matters in practice. A consumer with no trust anchor can
 still verify integrity completely, which is the zero-configuration case that
@@ -2652,7 +2689,10 @@ grouped by what a caller can do about them.}
 \quad Retired key           & The key was authorized once and not at this position; earlier signatures by it stand. \\
 \quad Compromised key       & The key's signatures are withdrawn from a recorded position onward. \\
 \quad Quorum failure        & A trust-root revision lacks the required \texttt{govern} signatures from the previous revision. \\
-\quad Trust root mismatch   & The trust root does not match the pinned digest. \\
+\quad Trust root mismatch   & The pinned revision is not reachable from the
+trust root in force through quorum-satisfying revisions. \\ \quad Revision
+regressed    & The revision in force is an ancestor of one this consumer
+already validated; governance walked backward. \\
 \quad Chain truncated       & The first-parent ancestry cannot be resolved back to the anchor; authority above the deepest resolvable snapshot is undecidable, integrity is unaffected. \\
 \midrule
 \multicolumn{2}{@{}l}{\emph{Reconciliation} (Section~\ref{sec:divergence})} \\
