@@ -542,8 +542,11 @@ gap this paper addresses.
 \centering
 \caption[Design coverage of the six requirements]{Design coverage of the six
 requirements of Section~\ref{sec:requirements}: \cfull\ full, \cpart\ partial,
-\cnone\ absent. The last row states the design intent of this version, not a
-validated implementation.}
+\cnone\ absent. Marks in the last row are grounded in the golden vectors of
+Section~\ref{sec:conformance} and the reference implementation rather than in
+design intent, and R1 is partial by the protocol's own admission: cited
+evidence is verified to exist and be addressable, while whether a claim holds
+over it is not checked (Section~\ref{sec:evidence-bundle}).}
 \label{tab:coverage}
 \begin{tabular}{lcccccc}
 \toprule
@@ -554,9 +557,9 @@ Open Knowledge Format         & \cfull & \cpart & \cpart & \cnone & \cnone & \cn
 GBrain                        & \cfull & \cpart & \cpart & \cpart & \cpart & \cpart \\
 Microsoft GraphRAG            & \cpart & \cpart & \cnone & \cpart & \cnone & \cnone \\
 Cognee                        & \cpart & \cpart & \cnone & \cpart & \cnone & \cpart \\
-Vector store + RAG pipeline   & \cnone & \cnone & \cnone & \cnone & \cnone & \cnone \\
+Vector store + RAG pipeline   & \cnone & \cnone & \cnone & \cpart & \cnone & \cpart \\
 \midrule
-Boltzmann Brain (this work)   & \cfull & \cfull & \cfull & \cfull & \cfull & \cfull \\
+Boltzmann Brain (this work)   & \cpart & \cfull & \cfull & \cfull & \cfull & \cfull \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -3033,6 +3036,7 @@ the composition and remain verifiable; what supersession changes is
 accessibility (Section~\ref{sec:forgetting}).
 
 \subsection{Evidence Bundle}
+\label{sec:evidence-bundle}
 
 The brain's result is not a written answer. It is a data contract carrying the
 matching blocks and everything needed to audit them:
