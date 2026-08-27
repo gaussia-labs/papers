@@ -1524,7 +1524,10 @@ Two clients that disagree on media types cannot pull each other's brains, so the
 \textbf{Role} & \textbf{Media type} \\
 \midrule
 Artifact type & \texttt{application/vnd.gaussia.boltzmann.brain.v1+json} \\
-Config (snapshot) & \texttt{application/vnd.gaussia.boltzmann.snapshot.v1+json} \\
+Config (snapshot) &
+\texttt{application/vnd.gaussia.boltzmann.snapshot.v1+json} \\ Config
+(projection) & \texttt{application/vnd.gaussia.boltzmann.projection.v1+json}
+\\
 Module layer & \texttt{application/vnd.gaussia.boltzmann.module.\{type\}.v1.tar+gzip} \\
 History layer & \texttt{application/vnd.gaussia.boltzmann.history.v1+tar+gzip} \\
 Vector index layer & \texttt{application/vnd.gaussia.boltzmann.index.vector.v1+bin} \\
@@ -1590,11 +1593,28 @@ transportable file, the root identifies the logical composition inside it.
 This is the annotation that closes the gap Section~\ref{sec:composition}
 identified in composing OCI with a retrieval stack.
 
-The \texttt{source-snapshot} annotation handles publishing a subset of modules.
-Such an artifact's config carries a \emph{reduced} snapshot, which by
-construction is not in the publisher's own history, so without recording the
-snapshot it was projected from, pushing a projection back to the same tag would
-look like a divergence when nothing diverged.
+\paragraph{Projections are views, not snapshots.} Publishing a subset of
+modules does not mint a new snapshot. A document that omits modules is not a
+version of the brain and has no position in the chain: it would need parents
+that do not type-check, a signature over bytes that belong to no history, and
+scopes no difference can compute. The config blob of a subset artifact is
+instead a \emph{projection document}, under its own media type
+(Table~\ref{tab:mediatypes}): it names the source snapshot by digest and
+carries, verbatim, the module references it retains. A projection is not
+signed and needs no scope, because its authority is the source's. A consumer
+verifies it by resolving the source snapshot, which travels in the artifact's
+history layer, verifying the source's signatures over the source's canonical
+bytes, and checking that every module reference in the projection is
+byte-identical to the corresponding entry of the source; a projection whose
+references are not a verbatim subset of its source MUST be rejected. Pinning,
+trust-root evaluation and ancestry all run against the source snapshot, so a
+projection is a safe first-contact object exactly to the extent its source is.
+The \texttt{source-snapshot} annotation stays a pre-download hint like every
+annotation; the binding that counts is the source digest inside the projection
+document, checked against the resolved source itself. And publishing back from
+a projection install is the partial-install reconciliation of
+Section~\ref{sec:partial-publish}, so nothing about a projection reads as a
+divergence.
 
 \subsection{Selective installation}
 \label{sec:selective}
