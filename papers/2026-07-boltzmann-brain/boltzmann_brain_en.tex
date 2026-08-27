@@ -1786,6 +1786,38 @@ this document can introduce a new namespace without invalidating signatures made
 under this one. A conforming implementation MUST reject a signature made under
 any other namespace.
 
+\paragraph{The parameters are pinned.}
+SSHSIG admits \texttt{sha256} and \texttt{sha512} in its
+\texttt{hash\_algorithm} field and expresses no preference, and the field
+sits inside the signed blob, so two implementations that chose differently
+would produce non-interoperable signatures over identical knowledge, and the
+signature vectors of Section~\ref{sec:conformance} would not be reproducible.
+This protocol pins it: a signature MUST be produced with
+\texttt{hash\_algorithm} \texttt{sha512}, and a verifier MUST reject a
+signature naming any other value. Key types are bounded from below as well:
+SSHSIG itself already excludes legacy \texttt{ssh-rsa} signatures over SHA-1,
+and a verifier MUST additionally reject \texttt{ssh-dss} keys and RSA keys
+shorter than 3072 bits.
+
+\paragraph{What valid means for Ed25519 is pinned too.}
+Naming the key type does not settle what \emph{valid} means. RFC 8032
+sanctions two acceptance criteria for the same signature, calling the
+stricter check ``sufficient, but not required''~\cite{rfc8032}, and
+measurement across sixteen deployed libraries finds them disagreeing in both
+directions on the same inputs, most of them accepting encodings the RFC
+mandates rejecting~\cite{chalkias2020eddsa, zip215}. Worse for this section's
+purpose, the common lenient behaviour is not strongly binding: a signature
+that verifies under more than one public key is a signature its signer can
+later disown, and Section~\ref{sec:integrity-total} rests on the signature being
+what makes the provenance \texttt{actor} field mean anything. A conforming
+verifier therefore MUST check the cofactorless equation $[S]B = R + [k]A$,
+which is what nearly every deployed library computes and batch verification,
+the one reason to prefer the cofactored form, is not used here; MUST reject a
+signature whose scalar $S$ is not less than the group order; MUST reject
+non-canonical encodings of $R$ or of the public key; and MUST reject a public
+key of small order. Each is an inexpensive check on bytes, performable before
+any library call, and together they make one verdict reachable per vector.
+
 \begin{callout}[title={Non-goal: key management}]
 The private key never enters the protocol. It stays where SSH keys already live:
 an agent, a hardware token, or a key-management service. The brain does not
@@ -3889,10 +3921,13 @@ it collapses to.
 size, and the roots they must reconstruct, for a tree of size one, a
 power-of-two size, and an odd size.
   \item \textbf{Signatures}: snapshots, published test key pairs, namespaces,
-  and the verdict a verifier MUST reach, including a signature valid under the
-  wrong namespace, a key authorized at one chain position and retired at another,
-  a key with a \texttt{compromised\_from} record, and a trust-root revision that
-  fails the quorum rule (Section~\ref{sec:authenticity}).
+and the verdict a verifier MUST reach, including a signature valid under the
+wrong namespace, a key authorized at one chain position and retired at
+another, a key with a \texttt{compromised\_from} record, a trust-root revision
+that fails the quorum rule, a signature whose \texttt{hash\_algorithm} is not
+\texttt{sha512}, and inputs on the Ed25519 acceptance boundary, a
+non-canonical encoding and a small-order public key, both of which MUST be
+rejected (Section~\ref{sec:authenticity}).
   \item \textbf{Reconciliation}: an ancestor composition and two branch
 compositions, with the set Equation~\ref{eq:merge} must produce, including the
 case where one side dropped what the other retained, and a criss-cross history
