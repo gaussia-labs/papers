@@ -2503,11 +2503,10 @@ the new original as a distinct block and records a \texttt{supersedes} relation
 to the previous one. That relation is a provenance edge rather than a field of
 either block, so both remain pure statements about the bytes they preserve and
 the precedence between them stays auditable where every other actor-dependent
-record lives. The caller chooses whether the superseded original remains in
-the current composition (kept for audit) or is dropped in the same commit. In
-either case the new block is what subsequent processing tasks read.
-\texttt{replace} is therefore register plus a supersession edge, with an
-optional drop of the old evidence, not a mutation of bytes already stored.
+record lives. The caller chooses whether the superseded original remains in the current
+composition, kept for audit, or is dropped in the same commit; either way the
+new block is what subsequent processing tasks read. \texttt{replace} is
+register plus a supersession edge, never a mutation of bytes already stored.
 
 \paragraph{Drop.}
 Excluding a canonical block from the current composition is the same drop
@@ -2543,9 +2542,8 @@ registered source and propose typed blocks from it.
 canonical source, which is the operation a caller requests when dropping
 evidence that has since been superseded (Section~\ref{sec:drop}).
 
-The \texttt{task\_id} is what the resulting provenance records cite, so that a
-later batch invalidation can name this task as the producer of everything it
-yielded.
+The resulting provenance records cite the \texttt{task\_id}, so a later batch
+invalidation can name this task as the producer of everything it yielded.
 
 \begin{callout}[title=Only three memory types are proposable]
 A processing task MUST NOT allow candidates in the \textbf{canonical} or
@@ -2609,9 +2607,8 @@ exist and the relation is admissible. \emph{Contradiction}: the candidate does
 not conflict with knowledge already held.
 
 How contradiction is detected is left open, and a check that cannot decide MUST
-yield \texttt{PENDING\_REVIEW} rather than guess in either direction. The
-protocol fixes what the verdicts mean and which of them may be committed, not
-how cleverly an implementation reaches them.
+yield \texttt{PENDING\_REVIEW} rather than guess in either direction. The protocol fixes what the verdicts mean and which of them may be committed,
+not how an implementation reaches them.
 
 For each accepted block, the
 protocol prescribes the following steps:
@@ -2654,18 +2651,14 @@ answer appropriate for the task.
 
 Step three above hides a query planner. By Principle~7 a query is declarative:
 the caller expresses intent (a query, optional filters over memory type, class, or recency, and optional hints such as a retrieval mode or a result
-limit) and never names a physical index. Choosing which indices to use, and how
-to combine them, is the responsibility of a conforming implementation, in the
-same way that the SQL standard defines a query language and its semantics while
-each database ships its own optimizer. Selection follows the shape of the
-query: exact identifiers resolve through the hash map, ordered or range
-predicates through the B\textsuperscript{+} tree, term matches through the
-inverted index, natural-language intent through the vector index, neighborhood
-and traversal through the graph, and categorical filters through bitmaps. In
-practice retrieval is hybrid: filters narrow a candidate set, lexical and
-vector search generate candidates in parallel, their rankings are fused, the
-graph expands from the strongest hits, and the hash map resolves and verifies
-each result.
+limit) and never names a physical index. Choosing which indices to use, and how to combine them, is the responsibility
+of a conforming implementation, in the same way that the SQL standard defines
+a query language and its semantics while each database ships its own
+optimizer. Selection follows the shape of the query, over the indices of
+Table~\ref{tab:indices}. In practice retrieval is hybrid: filters narrow a
+candidate set, lexical and vector search generate candidates in parallel,
+their rankings are fused, the graph expands from the strongest hits, and the
+hash map resolves and verifies each result.
 
 The protocol fixes the contract and the invariants, not the algorithm. A
 conforming implementation must return knowledge blocks with their provenance
@@ -2702,21 +2695,20 @@ request with no terms in it, and refusing it would make recency and class filter
 Filters are conditions and MUST be honored. Hints are advice: the retrieval
 mode, the result limit, and the expansion depth express what the caller
 believes will work, and an implementation that ignores every hint and still
-returns verified blocks with their provenance is conforming. The named modes are
-\texttt{auto} (infer intent from the query's shape), \texttt{exact} (resolve
-identities only), \texttt{lexical} (match terms as written), \texttt{semantic}
-(match meaning, accepting approximation), and \texttt{associative} (expand
-outward from the strongest hits along declared relations). A mode names a
-strategy, never an engine, which is what keeps Principle~7 intact.
+returns verified blocks with their provenance is conforming. The named modes are \texttt{auto} (infer intent from the query's shape),
+\texttt{exact} (resolve identities only), \texttt{lexical} (match terms as
+written), \texttt{semantic} (match meaning, accepting approximation), and
+\texttt{associative} (expand outward from the strongest hits along declared
+relations). A mode names a strategy, never an engine, which keeps Principle~7
+intact.
 
-The \texttt{classes} filter names class blocks (Section~\ref{sec:catalog}), which is what makes
-``the past exams on Fourier'' a condition the protocol can honour instead of free text a
-responder may read as it likes. The \texttt{memory\_types} filter is the mechanism behind R2: it is what keeps
-``what happened in the class of May 14'' from competing with ``the definition of
-a Fourier series'' in a single similarity ranking. The
-\texttt{include\_superseded} filter reflects that superseded blocks stay in the
-composition and remain verifiable; what supersession changes is accessibility
-(Section~\ref{sec:forgetting}).
+The \texttt{classes} filter names class blocks (Section~\ref{sec:catalog}),
+which makes ``the past exams on Fourier'' a condition the protocol can honour
+instead of free text a responder may read as it likes. The
+\texttt{memory\_types} filter is the mechanism behind R2. The
+\texttt{include\_superseded} filter reflects that superseded blocks stay in
+the composition and remain verifiable; what supersession changes is
+accessibility (Section~\ref{sec:forgetting}).
 
 \subsection{Evidence Bundle}
 
@@ -2752,11 +2744,9 @@ Six fields carry guarantees stated elsewhere in this document, and a
 conforming implementation MUST populate all of them.
 
 \texttt{verified} asserts that both the block's hash and its membership in the
-installed snapshot were checked. \texttt{verified\_against} names the module
-roots that membership was checked against, so the assertion is re-checkable
-independently rather than taken on the responder's word: without it,
-\texttt{verified} would be a claim a consumer has no way to audit, which is the
-opposite of the property Section~\ref{sec:composition} argues does not compose.
+installed snapshot were checked. \texttt{verified\_against} names the module roots that membership was checked
+against, so the assertion is re-checkable rather than taken on the responder's
+word; without it, \texttt{verified} would be a claim a consumer cannot audit.
 
 \texttt{resolvable} distinguishes a block whose bytes are still present from one
 that was redacted. A consumer MUST be able to tell a removed block from a
@@ -2766,13 +2756,13 @@ requirement is met at query time.
 \texttt{superseded\_by} names a newer block that takes precedence, so a caller
 that asked to include superseded blocks can tell which ones they are.
 
-\texttt{citation} states what became of each cited source, and it exists because
-verification does not otherwise survive selective installation. A bundle's
-sources point at canonical blocks, and under selective installation the canonical
-module may not be installed at all (Section~\ref{sec:selective}), so a consumer
-can receive a fully verified semantic block citing evidence it has no way to
-check. Since R1 makes canonical evidence the root of auditability, the bundle
-MUST say which of three situations holds: \texttt{verified}, the cited block is
+\texttt{citation} states what became of each cited source, because
+verification does not otherwise survive selective installation: a bundle's
+sources point at canonical blocks, and the canonical module may not be
+installed at all (Section~\ref{sec:selective}), so a consumer can receive a
+fully verified semantic block citing evidence it cannot check. Since R1 makes
+canonical evidence the root of auditability, the bundle MUST say which of
+three situations holds: \texttt{verified}, the cited block is
 present in the installed canonical composition; \texttt{uninstalled}, the
 canonical module is not installed here and the citation could not be checked; or
 \texttt{missing}, the canonical module \emph{is} installed and the citation is
