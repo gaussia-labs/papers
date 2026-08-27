@@ -772,7 +772,7 @@ The serialization is therefore normative, and it is named in every envelope so
 that a future one can coexist with it rather than replace it.
 
 This version uses \textbf{JCS}, the JSON Canonicalization Scheme of RFC
-8785~\cite{rfc8785}: object keys sorted by UTF-16 code point, no insignificant
+8785~\cite{rfc8785}: object keys sorted by UTF-16 code unit, no insignificant
 whitespace, and a fixed number format. Its identifier is \texttt{jcs/1}. JCS was
 chosen over a binary encoding because a block is a small structured record and
 the protocol is meant to be implemented in several languages: a canonical form
@@ -789,6 +789,22 @@ Either divergence would mean two conforming clients computing different
 rejected when a block is constructed, rather than at hashing time. Represent a
 decimal as a string, or as an integer scaled by a documented factor.
 \end{callout}
+
+\paragraph{Three precisions RFC 8785 leaves to its caller.}
+Key order is by UTF-16 \emph{code unit}, not code point: outside the Basic
+Multilingual Plane the two orders differ, because surrogates sort below the
+code points they encode, and an implementation sorting by code point silently
+computes different identifiers for the same knowledge. A JSON object carrying
+the same key twice MUST be rejected when a block is constructed: RFC 8785
+presupposes I-JSON input, parsers disagree on which duplicate survives, and
+either choice silently changes the bytes. Input that is not valid UTF-8, or
+that contains lone surrogates, MUST be rejected for the same reason. And JCS
+does not normalize Unicode: a payload in NFC and the same text in NFD are
+different bytes, and therefore two blocks with one meaning. This version keeps
+it that way, because normalizing inside the identity computation would mean
+the stored bytes are not the bytes that were registered; a producer SHOULD
+normalize text to NFC before constructing a block, and the burden sits with
+the producer.
 
 \subsection{Merkle DAG}
 \label{sec:merkle}
@@ -3814,8 +3830,10 @@ places where a divergence would be invisible:
 
 \begin{itemize}[leftmargin=1.4em]
   \item \textbf{Serialization}: values and the exact canonical bytes they
-  produce, including the cases that MUST be rejected
-  (Section~\ref{sec:serialization}).
+produce, including the cases that MUST be rejected, an object key outside the
+Basic Multilingual Plane (where code-unit and code-point order differ), an
+NFC/NFD pair yielding two distinct blocks, and a duplicate-key document
+(Section~\ref{sec:serialization}).
   \item \textbf{Block identifiers}: envelopes and the \texttt{block\_id} each
   one hashes to.
   \item \textbf{Merkle roots}: leaf sets and the root the construction of
