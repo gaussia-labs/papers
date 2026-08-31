@@ -4228,6 +4228,9 @@ it collapses to.
   \item \textbf{Inclusion proofs}: proofs, each carrying its leaf index and tree
 size, and the roots they must reconstruct, for a tree of size one, a
 power-of-two size, and an odd size.
+  \item \textbf{SSHSIG framing}: signature blobs and the exact bytes they parse
+to, including the signed-data blob, which is what separates a framing bug from a
+signing bug, and the malformed blobs that MUST be rejected.
   \item \textbf{Signatures}: snapshots, published test key pairs, namespaces,
 and the verdict a verifier MUST reach, including a signature valid under the
 wrong namespace, a key authorized at one chain position and retired at
@@ -4248,6 +4251,19 @@ of this protocol. An implementation in another language demonstrates agreement
 by reproducing them, which is a stronger claim than passing a test suite
 supplied by a reference implementation, because it requires no dependency on
 that implementation at all.
+
+The corpus is published independently of any implementation, at
+\url{https://github.com/gaussia-labs/boltzmann-conformance}, together with the
+schema registry companion of Section~\ref{sec:schema-versioning}. The separation
+is not administrative. A corpus an implementation owns is governed by that
+implementation's layout and release cycle, and ``conforming'' decays into
+``matching that implementation, bugs included'' -- which would make the paragraph
+above a claim the corpus could not honour about itself. Corpus versions are tied
+to protocol versions, and a published vector is never edited: a case whose
+expected output would change is either a defect in whatever produced it or a new
+serialization identifier, and silently correcting one would let two
+implementations agree with the corpus at different times and disagree with each
+other.
 
 Behavioral requirements that cannot be reduced to fixed vectors, such as the
 guarantee that a query returns only verified blocks, or that a drop yields a
