@@ -729,11 +729,81 @@ redacted: by which mechanism, actor, and reason. \\
 \end{tabularx}
 \end{table}
 
-Two distinctions carry weight elsewhere. An \emph{actor} is who performed an
-operation, while a \emph{producer} is what generated a derived block, recorded
-at the granularity a batch invalidation needs: a model, a pipeline, an
-ingestion batch, or an actor. That granularity makes the batch invalidation of
-Section~\ref{sec:drop} a query over provenance.
+\paragraph{Who a record names.}
+\label{sec:actors}
+An \emph{actor} is who performed an operation. Every record names exactly one,
+and a record MAY additionally name the parties that \emph{assisted}: the people
+and the agents that took part without being the one who performed it. Most
+brains are hydrated through an agent, so the assisting parties are usually where
+the work actually happened, and a ledger that could not name them would record
+the operator and lose the author.
+
+\begin{callout}[title=One question this protocol does not ask]
+Nothing here assigns responsibility. There is an actor, there is whoever
+assisted, and the protocol takes no position on which of them answers for the
+knowledge. Responsibility is a matter for the deployment, the jurisdiction, and
+the people involved; a field claiming to settle it would be a field every
+implementation would have to interpret, and none of them would agree.
+\end{callout}
+
+\paragraph{Actor identifiers.}
+An actor identifier MUST take one of exactly two forms: an
+\texttt{addr-spec} as defined by RFC~5322, or a \emph{namespaced name}
+\texttt{namespace/name}. It MUST be lowercase, and an implementation MUST reject
+a non-conforming identifier rather than normalize it, for the reason canonical
+serialization exists at all: an identifier that two parties spell differently is
+two identifiers, and because provenance records are blocks, two spellings of one
+person are two \texttt{block\_id}s for one fact (Section~\ref{sec:blocks}).
+
+\begin{table}[htbp]
+\centering
+\caption{The two identifier forms, and what each is for. The namespace carries
+the party that created or vouches for the name, so no separate field repeats it.}
+\label{tab:actor}
+\begin{tabularx}{\textwidth}{lY}
+\toprule
+\textbf{Form} & \textbf{Names} \\
+\midrule
+\texttt{alex@example.org}        & A person, by an address they already hold. \\
+\texttt{example.com/alexf}       & A person with only a handle, or an organization. \\
+\texttt{anthropic/claude-code}   & A runtime: the harness an agent runs inside. \\
+\texttt{anthropic/fable-5}       & A model. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+No scheme prefix is stored. A \texttt{mailto:} or \texttt{https:} wrapper is
+ceremony around a value people already write correctly, and the normalization
+questions it invites --- a trailing slash, a default port, a percent-encoded
+octet --- are exactly the questions a canonical form must not leave open. An
+implementation exporting to a provenance format that requires URIs derives one
+at that boundary.
+
+The kind of actor is recorded alongside the identifier and does not constrain
+its form. A contributor known only by a handle is precisely the party
+Section~\ref{sec:contribution} is written for, and requiring an address would
+close a door the protocol deliberately leaves open.
+
+\paragraph{Assisting parties, and what a model ran.}
+An assisting party is named the same way, and MAY additionally name the
+\emph{model} it ran. The pair matters: the same model under a different harness
+is a different collaborator, because the harness decides what the model sees,
+how many turns it takes, and which tools it can reach. Naming the two together
+keeps the pairing unambiguous when several agents write into one snapshot. A
+party of human kind MUST NOT name a model.
+
+No version string appears in any of this. A version is the field most likely to
+be invented by whoever fills the record in, it ages faster than everything
+around it, and it buys less than the identity it sits beside.
+
+\paragraph{Producers, and what became of them.}
+A \emph{producer} is what generated a derived block, recorded at the granularity
+a batch invalidation needs: a model, a pipeline, an ingestion batch, or an
+actor. It is the older spelling of the same question, and derivation records at
+schema version~1 carry it. From schema version~2 it is replaced by the
+assisting parties, which answer it more completely and for every record kind
+rather than for derivation alone. The batch invalidation of
+Section~\ref{sec:drop} is a query over whichever of the two a record carries.
 
 % ===========================================================================
 \section{Anatomy of a Module}
@@ -1427,6 +1497,23 @@ Oldest-that-fits inverts this: a brain stops being readable by an older client
 only at the point where it genuinely uses something that client has no schema
 for.
 
+\paragraph{A version may also remove a field.}
+Evolution is usually additive, but not always: provenance version~2 drops the
+\texttt{producer} member that version~1 requires, replacing it with the
+assisting parties of Section~\ref{sec:actors}. This needs no new rule, because
+\emph{satisfies} already admits no members a schema does not name. A payload
+carrying \texttt{producer} satisfies version~1 and not version~2; one carrying
+assisting parties satisfies version~2 and not version~1; one carrying both, or
+neither, satisfies no registered schema and MUST be refused. The two versions
+are disjoint rather than nested, and selection is therefore unambiguous without
+consulting anything outside the payload --- which is the property
+oldest-that-fits exists to guarantee, and it survives a removal unchanged.
+
+The consequence for a writer is the one that matters. A brain whose records name
+no assisting parties keeps writing version~1, byte for byte as before, and stays
+readable by every client that could read it yesterday. Only a record that
+actually names who assisted pays for version~2.
+
 \paragraph{An unknown version MUST fail loudly.}
 A block declaring a schema version a client does not implement was written by a
 newer implementation. The schema cannot be inferred from the bytes, so the
@@ -1983,9 +2070,11 @@ root} carried in the snapshot document under the key \texttt{trust\_root}:
   "govern_quorum": 2,
   "keys": [
     { "key":              "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5...",
+      "subject":          "alex@example.org",
       "scopes":           ["ingest", "commit", "drop:canonical", "govern"],
       "since":            1 },
     { "key":              "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5...",
+      "subject":          "example.com/juan",
       "scopes":           ["ingest", "commit", "govern"],
       "since":            1 },
     { "key":              "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5...",
@@ -2005,6 +2094,30 @@ root} carried in the snapshot document under the key \texttt{trust\_root}:
 Its identity is the digest of its canonical serialization, and that digest,
 rather than any individual key, is what a consumer pins
 (Section~\ref{sec:bootstrap}).
+
+\paragraph{What a key's subject does and does not claim.}
+An entry MAY carry a \texttt{subject}: an actor identifier
+(Section~\ref{sec:actors}) naming who holds the key. It is what finally connects
+the two halves of Section~\ref{sec:modules}'s promise --- that a signature is
+what turns a declared actor into an authenticated identity --- because without
+it a snapshot's provenance names a person and its signature names a fingerprint,
+with nothing asserting the two are the same and no way for a verifier to ask.
+
+The claim it makes is deliberately narrow. A subject is asserted by this brain's
+governance and nowhere else: changing one changes the trust root, which is a
+revision, which requires a quorum evaluated against the previous revision
+(Section~\ref{sec:revocation}). It is therefore as trustworthy as the quorum
+that recorded it and no more. It is emphatically not a certificate. The grounds
+for believing a key belongs to a particular person in the world remain outside
+the protocol, exactly as Section~\ref{sec:cases} says; what a subject adds is
+that once those grounds exist, the conclusion can be written down where a
+verifier will read it, instead of living in a maintainer's memory.
+
+The member MAY be absent, and absence is the ordinary case for a brain that has
+never needed it. An absent \texttt{subject} MUST be omitted rather than
+serialized as null, so that a trust root that names no subjects has exactly the
+digest it had before this member existed, and every pin taken against it
+continues to hold.
 
 \paragraph{Two forms of position, and why they are not interchangeable.}
 \texttt{since} and \texttt{retired\_from} name a \emph{revision number};
@@ -2443,6 +2556,23 @@ predecessor's quorum; and confirm that the key is neither retired nor
 compromised at that position.
 \end{enumerate}
 
+\paragraph{Attribution is reported, never enforced.}
+Where a trust root declares subjects (Section~\ref{sec:trust-root}), a verifier
+SHOULD additionally compare the actors named by the provenance records a
+snapshot adds against its first parent with the subjects of the keys that signed
+it, and report each actor as \emph{verified} when a signing key vouches for it
+and \emph{asserted} when none does. Assisting parties are never subject to this
+comparison: nothing expects a model to have signed anything.
+
+The comparison MUST NOT block. A snapshot legitimately carries records whose
+actors never signed it --- every merge does, since reconciliation brings another
+party's records into a history the local key signs
+(Section~\ref{sec:strategies}) --- so a verifier that refused an unvouched
+actor would refuse the ordinary operation of Section~\ref{sec:divergence}. What
+it must not do is pass silently: an actor nobody vouches for is a declared name,
+which is what it was before subjects existed, and saying so is the whole value
+of having asked.
+
 \paragraph{Authority is a property of the chain.}
 The authenticity check does not stop at the head. A verifier MUST NOT report a
 snapshot as authorized unless the first-parent chain resolves from the head
@@ -2511,7 +2641,11 @@ In the first two, the brain is at revision~1 with keys $A$ and $B$, both holding
 \paragraph{Case 1: admitting a third owner.}
 $C$ generates a key pair and sends the \emph{public} half. The channel need
 not be confidential, though the recipients need independent grounds to believe
-the key is $C$'s, which the protocol does not answer. A trust root at
+the key is $C$'s, which the protocol does not answer. What it does offer is a
+place to record the conclusion once those grounds exist: the entry admitting
+$C$ MAY carry a \texttt{subject} (Section~\ref{sec:trust-root}), so the
+governance act that admits the key and the statement of whose key it is are the
+same quorum-approved change. A trust root at
 revision~2 lists $A$, $B$ and $C$; a snapshot \texttt{S8} names \texttt{S7} as
 its parent, carries that trust root, and leaves every module root equal to
 \texttt{S7}'s, because a revision changes nothing else
@@ -2906,7 +3040,12 @@ in-place edit of a source: a new edition is always a new block.
   \item The original is stored as an immutable canonical block, optionally
   together with a normalized view produced by a named deterministic pipeline.
   \item The protocol records who incorporated it, when, from where, and under
-  what license or policy.
+  what license or policy. The actor is the party on whose account the operation
+  runs, which is ordinarily the person the adapter is acting for and not the
+  model that called it; the model and the harness it ran inside are recorded as
+  assisting parties (Section~\ref{sec:actors}). An implementation that recorded
+  the model as the actor, or omitted it entirely, would answer ``who did this''
+  with the wrong half of the answer.
   \item The canonical Merkle root changes and a new snapshot becomes
   available, even though no semantic interpretation exists yet.
 \end{enumerate}
@@ -3169,6 +3308,7 @@ matching blocks and everything needed to audit them:
     "state":      "authorized",
     "snapshot":   "sha256:SNAPSHOT",
     "key":        "SHA256:5tS7wqf2K...",
+    "subject":    "alex@example.org",
     "trust_root": "sha256:TRUST_ROOT_R3",
     "pinned":     true
   },
@@ -3354,11 +3494,21 @@ round trip through the external model, and whether a cheaper deterministic
 path should exist is stated as open in Section~\ref{sec:conclusion}.
 
 \paragraph{Batch invalidation.}
-Because provenance records the producer of each derived block (model, pipeline,
-ingestion batch, or actor), a drop may be stated over a \emph{set}: everything
-produced by a given ingestion, or everything derived by a given model version.
-That is the natural response to deliberately wrong knowledge introduced in
-bulk, and it reuses the same cascade rather than inventing a second mechanism.
+Because provenance records what produced each derived block
+(Section~\ref{sec:actors}), a drop may be stated over a \emph{set}: everything
+produced by a given ingestion, or everything derived by a given model. That is
+the natural response to deliberately wrong knowledge introduced in bulk, and it
+reuses the same cascade rather than inventing a second mechanism.
+
+The granularity is the identity, not a release of it. Records at schema
+version~1 carry a producer with a version string and a drop may name it;
+from version~2 the version is gone, and a drop over a model reaches everything
+that model made. The narrowing is deliberate. A version is the field most
+likely to be wrong --- invented by whoever filled the record in, or simply
+absent --- and a batch invalidation that silently missed blocks because two
+records spelled a release differently is a worse failure than one that reaches
+further than strictly necessary. Where a deployment genuinely needs to separate
+two releases, they are two identities.
 It reaches exactly the modules drop reaches: for poisoned episodic content,
 out of its reach by construction, Section~\ref{sec:bulk-poisoning} states the
 remedy.
@@ -4064,10 +4214,10 @@ producer, so a poisoned batch can be excluded as a set.
 \subsection{Poisoning in bulk, and its remedy}
 \label{sec:bulk-poisoning}
 
-Because provenance records the producer of every derived block at the granularity
-of a model, pipeline, ingestion batch, or actor,
-\texttt{drop\_by\_producer} (Section~\ref{sec:drop}) can exclude everything a
-compromised producer made in one operation. This is remediation and not
+Because provenance records what produced every derived block and who assisted in
+making it (Section~\ref{sec:actors}), \texttt{drop\_by\_producer}
+(Section~\ref{sec:drop}) can exclude everything a compromised model, pipeline,
+ingestion batch, or actor made in one operation. This is remediation and not
 prevention, and it should be described as such: it shortens the window during
 which poisoned knowledge is served, and it does not stop the poisoning. Its value is that the window is bounded by a query over provenance rather than
 by an audit of a corpus. The operation's reach has a boundary, and the batch
@@ -4207,7 +4357,7 @@ Agreement on the identity layer cannot be established by prose, because every
 disagreement in it is silent: two implementations that serialize differently do
 not fail, they simply compute different identifiers for the same knowledge and
 stop sharing blocks. Conformance is therefore anchored in published test vectors, covering the
-seven places where a divergence would be invisible:
+nine places where a divergence would be invisible:
 
 \begin{itemize}[leftmargin=1.4em]
   \item \textbf{Serialization}: values and the exact canonical bytes they
@@ -4216,9 +4366,17 @@ Basic Multilingual Plane (where code-unit and code-point order differ), an
 NFC/NFD pair yielding two distinct blocks, and a duplicate-key document
 (Section~\ref{sec:serialization}).
   \item \textbf{Block identifiers}: envelopes and the \texttt{block\_id} each
-one hashes to.   \item \textbf{Schema selection}: payloads and the
+one hashes to, including a provenance record that names assisting parties and
+the same record without them, which must keep the identifier it had before
+version~2 existed.
+  \item \textbf{Actor identifiers}: identifiers of both forms and the
+rejections each with its reason, so that the rule of
+Section~\ref{sec:actors} is checkable without running any implementation.
+  \item \textbf{Schema selection}: payloads and the
 \texttt{schema\_version} the oldest-that-fits rule assigns them against the
-registered set, including a payload that satisfies several registered schemas
+registered set, including a payload that satisfies several registered schemas,
+and the disjoint case of a version that removes a required field, where a
+payload carrying both members or neither MUST be refused
 (Section~\ref{sec:schema-versioning}).
   \item \textbf{Merkle roots}: leaf sets and the root the construction of
 Section~\ref{sec:merkle} produces, including the empty set, odd-sized trees,
