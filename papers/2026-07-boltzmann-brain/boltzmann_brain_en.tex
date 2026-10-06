@@ -4464,7 +4464,7 @@ Agreement on the identity layer cannot be established by prose, because every
 disagreement in it is silent: two implementations that serialize differently do
 not fail, they simply compute different identifiers for the same knowledge and
 stop sharing blocks. Conformance is therefore anchored in published test vectors, covering the
-nine places where a divergence would be invisible:
+ten places where a divergence would be invisible:
 
 \begin{itemize}[leftmargin=1.4em]
   \item \textbf{Serialization}: values and the exact canonical bytes they
@@ -4479,6 +4479,11 @@ version~2 existed.
   \item \textbf{Actor identifiers}: identifiers of both forms and the
 rejections each with its reason, so that the rule of
 Section~\ref{sec:actors} is checkable without running any implementation.
+  \item \textbf{Branch names}: names and the tag each publishes to,
+including both sides of the 128-character tag bound, the names that MUST be
+refused, and tags read back to the branch they name, among them a release tag,
+\texttt{br.main}, and a signature fallback tag, none of which names a branch
+(Section~\ref{sec:branches}).
   \item \textbf{Schema selection}: payloads and the
 \texttt{schema\_version} the oldest-that-fits rule assigns them against the
 registered set, including a payload that satisfies several registered schemas,
