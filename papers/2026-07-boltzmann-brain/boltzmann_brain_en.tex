@@ -1772,7 +1772,9 @@ modules, the blocks inside them, and their query contract.
 
 Everything described so far is content-addressed and immutable. A working brain needs exactly one piece of mutable state: a pointer saying
 which snapshot is current. Isolating it to a single pointer makes a commit atomic, and it is the only
-place where write ordering matters.
+place where write ordering matters. Named branches (Section~\ref{sec:branches})
+add a table of further pointers beside it, but a commit still moves only the
+current one.
 
 \paragraph{Commit is a pointer move.}
 A conforming implementation MUST write every blob a new snapshot references
@@ -1783,7 +1785,8 @@ name a state that cannot be resolved. The asymmetry is why a commit can be inter
 
 \paragraph{Retained roots.}
 Alongside the current snapshot, a brain keeps a set of retained snapshots:
-tagged releases plus a bounded number of recent ones. This set is what
+tagged releases, the head of every named branch, plus a bounded number of
+recent ones. Branch heads do not count against the bound. This set is what
 reachability is computed from when pruning reclaims blocks
 (Section~\ref{sec:forgetting}), and gives ``a retained root'' a precise meaning.
 
@@ -1801,6 +1804,22 @@ the local chain. If the remote is an ancestor of the local snapshot, the publish
 fast-forwards. If it is not, the two brains have diverged, and the
 implementation MUST refuse the publish and report where the histories parted,
 rather than overwrite.
+
+\paragraph{A publish is checked again after it lands.}
+The comparison above and the write that follows it are two requests, and OCI
+offers no conditional write on a tag: a second publisher whose check ran in
+the gap overwrites the first, and both checks passed. The protocol cannot close
+that gap without a registry feature it does not assume, so it requires that the
+gap be detected. After moving a tag, an implementation MUST resolve it again
+and compare the snapshot it now names against the one it published. The same
+snapshot is success. An ancestor of the published snapshot means the registry
+has not yet served the write, and the implementation SHOULD retry the read
+before concluding anything. Any other snapshot means another publish replaced
+this one, and the implementation MUST report a \emph{lost publish},
+distinguishable from a divergence (Table~\ref{tab:failures}). Nothing is lost
+locally: the published snapshot is still the local head, and the remedy is the
+one for divergence. Only the publisher that lost can observe the race; the one
+that won cannot, and neither can a client that skips the check.
 
 \paragraph{The same comparison runs on pull.}
 The comparison is not the publisher's alone. On \texttt{pull}, when the
@@ -1822,6 +1841,83 @@ Detecting divergence is a reader's duty and belongs here; deciding what to do
 next is a separate question, and Section~\ref{sec:divergence} answers it,
 including the partial install that cannot otherwise be published back
 (Section~\ref{sec:partial-publish}).
+
+\subsection{Branches}
+\label{sec:branches}
+
+The divergence check makes a shared tag safe, not convenient. When several
+writers publish to one tag, every publish but the first is refused until its
+writer reconciles, so the tag serializes the whole team. A \emph{branch} gives
+each line of work a tag of its own, and moves reconciliation to the moment a
+writer chooses to join one line into another.
+
+\paragraph{A branch is a named pointer.}
+A brain holds, beside the current-snapshot pointer, a table of \emph{refs}:
+named pointers, each to a snapshot, each carrying its own \emph{Origin}. One
+branch is current; its head is the current snapshot, so a commit moves the
+current pointer exactly as before and touches no ref. A brain with no ref
+table has one branch, the default branch, named \texttt{main}, and behaves
+exactly as this document described before branches existed.
+\texttt{checkout} records the current snapshot and Origin under the current
+branch's ref, then moves the current pointer to another branch's head and
+restores that branch's Origin. Like a commit, it MUST write the ref before it
+moves the pointer, so an interrupted checkout leaves both heads named. An
+implementation MUST refuse \texttt{checkout} while a reconciliation is open,
+because the open reconciliation is stated against the current head.
+
+\paragraph{Branch heads are roots.}
+Every branch head is a retained root (Section~\ref{sec:local-state}), and
+\texttt{prune} MUST treat it as one: the snapshot, its compositions, and every
+block they name stay reachable. A branch head that left the retained set when
+commits elsewhere pushed it past the bound would otherwise be reclaimed while
+its name still pointed at it. An implementation MUST also keep every branch
+head in the retained set itself, outside the bound, so that a client that
+knows nothing of refs and prunes from the retained set alone still keeps them.
+
+\paragraph{A branch publishes to a tag.}
+A branch name is one or more segments separated by \texttt{/}, each segment
+matching \texttt{[A-Za-z0-9][A-Za-z0-9\_-]*}. The default branch publishes to
+the tag the deployment treats as current, conventionally \texttt{latest}.
+Every other branch publishes to the tag formed by the prefix \texttt{br.}
+followed by its name with each \texttt{/} replaced by \texttt{.}, so
+\texttt{ana/fix-typo} publishes to \texttt{br.ana.fix-typo}. Segments contain
+no \texttt{.}, so the mapping is reversible, and a tag that begins
+\texttt{br.} and decodes to a valid name names a branch to any client that
+lists the repository. An implementation MUST refuse a name whose tag would
+exceed the 128 characters OCI allows, and MUST refuse \texttt{main} as the
+name of a non-default branch. The prefix is fixed by this document, not by
+deployments, so that branches published by one client are branches to every
+other. Neither the branch nor the tag enters the manifest: a snapshot has the
+same manifest digest under every tag it is published to, which is what lets a
+branch be created on the registry by publishing a snapshot it already holds.
+\texttt{push} and \texttt{pull} default to the current branch's tag, and an
+explicit tag overrides the default without renaming the branch. The
+divergence check (Section~\ref{sec:local-state}) runs per tag, so two writers
+on different branches never refuse each other.
+
+\paragraph{Pulling another branch's tag.}
+A pull whose tag names a branch other than the current one installs into that
+branch, creating its ref if the brain has none, and makes it current. It does
+not overwrite the current branch: the current head is recorded under its ref
+first, exactly as \texttt{checkout} records it.
+
+\paragraph{Joining branches.}
+Joining a branch into the current one needs no new mechanism. If the current
+head is an ancestor of the other branch's head, the join fast-forwards: the
+current pointer moves to that head and no snapshot is written. If the other
+head is already reachable from the current one, there is nothing to join.
+Otherwise the two heads have diverged, and the join is a reconciliation
+(Section~\ref{sec:divergence}) whose incoming history is the other branch's
+head, already held locally, recorded by whichever strategy the writer
+chooses.
+
+\paragraph{Deleting a branch.}
+Deleting a branch removes its ref. An implementation MUST refuse to delete
+the current branch, and MUST refuse, absent an explicit override, to delete a
+branch whose head is reachable from no other branch and was never published,
+because the ref is then the only name for that work. Deleting a published
+branch from the registry is out of scope: OCI deletes manifests by digest,
+and a branch's manifest may be the same manifest another tag names.
 
 % ===========================================================================
 \section{Authenticity and Trust}
@@ -2928,11 +3024,14 @@ sibling hashes, leaf index, and tree size. \\
   & \texttt{prune}         & Reclaim blocks no retained root still references. \\
   & \texttt{redact}        & Destroy bytes a retained root still names, under policy. \\
 \midrule
-\multirow{4}{*}{Distribution}
+\multirow{7}{*}{Distribution}
   & \texttt{pack}          & Materialize the current snapshot as an OCI Artifact locally. \\
-  & \texttt{push}          & Publish, refusing to overwrite a diverged remote (Section~\ref{sec:local-state}). \\
-  & \texttt{pull}          & Install an artifact, optionally only some modules. \\
+  & \texttt{push}          & Publish to the current branch's tag, refusing to overwrite a diverged remote and reporting a publish another one replaced (Section~\ref{sec:local-state}). \\
+  & \texttt{pull}          & Install an artifact, optionally only some modules, into the branch its tag names. \\
   & \texttt{fetch}         & Retrieve a remote history without moving the local pointer (Section~\ref{sec:contribution}). \\
+  & \texttt{branch}        & Create, list, or delete a named branch, locally or as published (Section~\ref{sec:branches}). \\
+  & \texttt{checkout}      & Make another branch current, recording the current head under its own. \\
+  & \texttt{join}          & Bring another branch into the current one: fast-forward, or reconcile. \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -3008,6 +3107,14 @@ ancestor of the head this consumer already holds; the remote walked backward.
 \quad No common ancestor    & Two histories share no ancestor, so no three-way merge is defined. \\
 \quad Multiple merge bases & Criss-cross histories yield more than one best common ancestor, so the three-way merge is not determined. \\
 \quad Governance conflict   & The histories being reconciled carry different trust roots. \\
+\quad Lost publish          & A tag re-read after publishing names a snapshot that is neither the one published nor its ancestor; another publish replaced it. \\
+\quad Reconciliation open   & A reconciliation is in progress, and the operation would move or record the head it is stated against. \\
+\midrule
+\multicolumn{2}{@{}l}{\emph{Branches} (Section~\ref{sec:branches})} \\
+\quad Branch not found      & No ref of that name is held, locally or as a published tag. \\
+\quad Branch exists         & A ref of that name is already held. \\
+\quad Invalid branch name   & The name violates the grammar, is reserved, or maps to a tag OCI does not allow. \\
+\quad Unmerged branch       & The branch to delete is reachable from no other branch and was never published. \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -3681,7 +3788,7 @@ version specifies.}
 Droppable modules   & Which modules permit \texttt{drop}. & all non-episodic \\
 Canonical drop      & Whether canonical evidence may be excluded at all. & forbidden \\
 Cascade review      & How many dependents a cascade may drop before the commit requires review. & no threshold \\
-Retained roots      & How many recent snapshots stay reachable, on top of tagged releases. & 10 \\
+Retained roots      & How many recent snapshots stay reachable, on top of tagged releases and branch heads. & 10 \\
 Redactable content  & Which media types may have their bytes destroyed. & none \\
 Episodic redaction  & Whether episodic content may be redacted, which is the only erasure path an append-only module has. & forbidden \\
 Allowed mechanisms  & Which removal mechanisms are permitted at all. & all the module allows \\
