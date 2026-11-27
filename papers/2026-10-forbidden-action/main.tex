@@ -1,0 +1,365 @@
+\documentclass[11pt,a4paper]{article}
+
+% Packages
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+% Typography: URW Palatino (Palladio) text + Pazo math + Inconsolata mono.
+% This is the same font stack used by the Qwen technical reports.
+\usepackage{mathpazo}
+\usepackage[scaled=0.95]{inconsolata}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{fancyhdr}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning, fit, backgrounds, calc}
+\usepackage[margin=1in]{geometry}
+\usepackage[hidelinks]{hyperref}
+\usepackage[english]{babel}
+\setlength{\emergencystretch}{3em}
+
+% Resolve assets/figures whether compiled from the repo root or this folder.
+% Copy this line into each paper, pointing the first path at the paper's folder.
+\graphicspath{{papers/2026-10-forbidden-action/}{./}}
+
+% Brand header (logo + wordmark on the left, date on the right)
+\definecolor{gaussiadark}{HTML}{323030}
+\definecolor{gaussiaccent}{HTML}{C15A35}
+\newcommand{\paperdate}{Version 1.0, 2026-10-20}
+\newcommand{\papersurl}{https://www.gaussia.ai/papers}
+\newcommand{\repourl}{https://github.com/gaussia-labs/papers}
+\newcommand{\hfurl}{https://huggingface.co/gaussia-labs}
+% Header logo (no link, just branding)
+\newcommand{\gaussialogo}{%
+  \raisebox{-0.28\height}{\includegraphics[height=14pt]{logo}}%
+  \hspace{5pt}\textcolor{gaussiadark}{\textbf{\large Gaussia}}%
+}
+% Clickable links shown under the title, Qwen-report style
+\newcommand{\paperlinks}{%
+  \begin{center}
+    \href{\repourl}{%
+      \raisebox{-0.22\height}{\includegraphics[height=11pt]{github}}%
+      \hspace{4pt}\texttt{github.com/gaussia-labs/papers}}\\[4pt]
+    \href{\papersurl}{%
+      \raisebox{-0.26\height}{\includegraphics[height=11pt]{logo}}%
+      \hspace{4pt}\texttt{gaussia.ai/papers}}\\[4pt]
+    \href{\hfurl}{%
+      \raisebox{-0.26\height}{\includegraphics[height=12pt]{hf-logo}}%
+      \hspace{4pt}\texttt{huggingface.co/gaussia-labs}}
+  \end{center}%
+}
+
+\providecommand{\keywords}[1]{%
+  \vspace{0.5em}%
+  \noindent\textbf{Keywords: }#1%
+}
+
+\setlength{\headheight}{18pt}
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\gaussialogo}
+\rhead{\textcolor{gaussiadark}{\paperdate}}
+\renewcommand{\headrulewidth}{0.6pt}
+\rfoot{\thepage}
+
+% Metadata
+\title{A deterministic measurement of forbidden actions in AI assistants with tools\\
+\large Formal definition, per-conversation rate, incident count and validation in a synthetic simulation}
+\author{Juan F. Cobo (author) \and Leonardo Leenen (reviewer, 2026-10-20)\\ \small EthiCompass \\
+\small Manuscript prepared for external review and eventual submission for publication}
+% Date is shown in the header instead of under the title (see \paperdate above)
+\date{}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{fancy}
+
+% Repository and website links, shown under the title
+\paperlinks
+
+% The abstract is REQUIRED for every Gaussia paper. Do not remove it.
+\begin{abstract}
+The oversight policy of the organization that deploys an AI assistant with tools puts each tool in one of three
+levels: free, with the approval of a person, or forbidden. A forbidden tool must never be used, not even with
+approval, and for this reason no person reviews its use before it occurs. The published human-oversight metrics
+already list these calls, but on purpose they do not include them in any ratio, and they do not give a figure per
+conversation that can be counted on a dataset. We present a deterministic measurement that compares each call of
+the record with the policy, without a judge. The result is an indicator per turn, which is joined per
+conversation with the maximum. It is published in two forms: a rate per conversation with its Wilson interval on a
+Kish effective sample size, and an incident count, because one confirmed forbidden execution is reported although
+the rate is low. We also define the reading without a record, which sees only what the assistant says that it did
+and cannot be used to report incidents. In a synthetic simulation, without a record only 2 of 75 oversight
+incident instances, of all types, of a profile that never escalates are visible. This work reports no results with real assistants.
+\end{abstract}
+
+\keywords{AI red-teaming, human oversight, tool-using agents, oversight policy, incidents, Wilson interval, design effect}
+
+\noindent\textit{The Spanish version of this document is the original.}
+
+\section{Introduction and motivation}
+
+An assistant with tools acts in real systems: it issues refunds, changes accounts, sends messages. The company that
+deploys it decides what the assistant can do alone and what it cannot. For this, it writes an oversight policy
+that puts each tool in one of three levels: \emph{free} (the assistant uses it alone), \emph{with approval} (it
+uses it only if a person approves it) or \emph{forbidden} (it never uses it).
+
+A tool is forbidden because no person can accept its effect in that deployment: delete an account, move money out
+of the company, change the permissions of a user. Frequently the assistant has technical access to the tool for
+other reasons, for example because it shares credentials with another process. In that case the policy is the only
+barrier.
+
+Human oversight does not protect against this failure. In an action with approval, a person reviews before the
+execution. In a forbidden action nobody reviews, because the action must not occur; if it occurs, nobody saw it
+before. For this reason the failure is serious, and for this reason it is easy to check: it is sufficient to
+compare each call with the policy.
+
+This document defines that comparison as a measurement with a rate and an incident count, and validates it in a
+synthetic simulation.
+
+\section{Related work}
+
+\begin{itemize}
+  \item \textbf{Published oversight metrics.} The Gaussia oversight paper \cite{gaussia2026} defines the policy
+    with three levels and checks on the actions that need approval. Forbidden executions are listed separately, as
+    a diagnostic, and on purpose they are not part of the permission ratio. This work starts from that list and
+    adds a figure per conversation and an incident count.
+  \item \textbf{Risky actions of agents.} ToolEmu \cite{toolemu} shows that agents with tools execute risky
+    actions: the safest agent that they evaluated fails 23.9\% of the time. This justifies measuring the
+    execution, not only the text.
+  \item \textbf{Policy compliance of web agents.} ST-WebAgentBench \cite{stwebagentbench} detects policy
+    violations with rule-based evaluation functions on the trajectory, without an LLM judge, which is the same
+    decision as this work. Its User Consent dimension, confirmation before irreversible operations, is an
+    analogue of an operator policy, not the same thing, and its approver is simulated.
+  \item \textbf{Risk framework.} The OWASP Top 10 for Agentic Applications 2026 \cite{owaspagentic} describes the
+    risk context of assistants with tools. The closest entry to an executed forbidden tool is ASI02, Tool Misuse
+    and Exploitation, in which the agent applies a legitimate tool in an unsafe or unintended way.
+  \item \textbf{Estimation.} We use the Wilson interval \cite{wilson1927,brown2001}, suitable for rates near 0
+    and small $n$, and the Kish design effect \cite{kish1965} for correlated replicas.
+\end{itemize}
+
+\section{Formal definition}
+
+\subsection{Policy and record}
+
+The policy is a function $\lambda$ that assigns to each tool $h$ a level
+$\lambda(h) \in \{\textsc{free}, \textsc{appr}, \textsc{forb}\}$. Let $i \in \{1,\dots,N\}$ be the conversation
+index, $t \in \{0,\dots,T_i-1\}$ the turn of the assistant and $C_{i,t}$ the set of calls executed in turn $t$, with
+$h(c)$ the tool of call $c$. The calls and the approvals that occur before a response of the assistant are part of
+the turn of that response.
+
+\subsection{Indicator per turn}
+
+For each turn with at least one executed call,
+\begin{equation}
+  f_{i,t} = \mathbf{1}\big[\exists\, c \in C_{i,t} : \lambda(h(c)) = \textsc{forb}\big],
+\end{equation}
+with the cause \texttt{forbidden\_executed} if $f_{i,t}=1$ and the list of the forbidden calls as evidence. A turn
+without calls does not apply. A turn that cannot be decided, for example because its record is missing, has no
+score and has a reason. A turn without a score never counts as compliance.
+
+\paragraph{An approval does not change the result.} The definition does not read the approvals. A forbidden tool
+does not become allowed because a person approved it.
+
+\paragraph{Separation from approval checks.} A check of approvals measures the actions that need an approval. A
+forbidden call is not an action that needs an approval: it must never run. This measurement covers it.
+
+\subsection{Value per conversation}
+
+The value of the conversation is the maximum of the turns with a score:
+\begin{equation}
+  F_i = \max_{t \in \mathcal{T}_i} f_{i,t},
+\end{equation}
+where $\mathcal{T}_i$ are the turns with a score. If $\mathcal{T}_i = \emptyset$, the conversation goes out of the
+denominator and is reported separately, with its reason.
+
+\subsection{Rate and interval}
+
+The rate is $\hat{p} = \sum_i F_i / n$ over the $n$ evaluated conversations that target the measurement, that is,
+whose scenarios have actions. A model never decides the denominator: it comes from the planned and complete
+scenarios. The replicas of a scenario are not independent; with the Kish design effect
+\begin{equation}
+  \mathrm{deff} = 1 + (\bar{m} - 1)\rho, \qquad n_{\mathrm{ef}} = n / \mathrm{deff},
+\end{equation}
+where $\bar{m}$ is the mean number of replicas per scenario and $\rho$ the correlation inside the scenario, the
+Wilson interval is calculated with $n_{\mathrm{ef}}$:
+\begin{equation}
+  \frac{\hat{p} + \frac{z^2}{2n_{\mathrm{ef}}}}{1 + \frac{z^2}{n_{\mathrm{ef}}}}
+  \;\pm\;
+  \frac{z}{1 + \frac{z^2}{n_{\mathrm{ef}}}}\sqrt{\frac{\hat{p}(1-\hat{p})}{n_{\mathrm{ef}}} + \frac{z^2}{4n_{\mathrm{ef}}^2}}.
+\end{equation}
+
+The correlation $\rho$ is not chosen by hand: a run estimates it from its own replicas, as the intraclass
+correlation of the per-conversation results grouped by scenario. The paper requires that $\rho$ is estimated and
+reported, not a specific estimator. Ridout et al.~\cite{ridout1999} review and compare the estimators for binary
+clustered data, among them the one-way ANOVA estimator, which our implementation uses with a negative estimate
+taken as 0. The output reports $\hat{\rho}$ together with $\bar{m}$ and $n_{\mathrm{ef}}$, and the interval uses
+the $n_{\mathrm{ef}}$ computed with $\hat{\rho}$; the Wilson interval with an effective sample size in place of $n$
+is one of the two forms that Franco et al.~\cite{franco2019} recommend. An assumed $\rho$ is used only to plan
+the number of scenarios and replicas, or as a sensitivity analysis. With few scenarios $\hat{\rho}$ is noisy; a
+clustered standard error with the scenario as the cluster \cite{miller2024} needs no $\rho$ and can be reported
+next to the interval as a check.
+
+\paragraph{Joint figure with the task.} An assistant that does nothing has a rate of 0. Where the scenario
+defines when the task is complete, the report adds the share of conversations in which the task is completed and
+no forbidden action is executed, over the same $n$ conversations. The rate $\hat{p}$ does not change; the joint
+figure only shows whether a low rate comes from caution or from inaction. ST-WebAgentBench uses the same joint
+figure as its headline metric, Completion Under Policy \cite{stwebagentbench}.
+
+\subsection{Incidents}
+
+In addition to the rate, the measurement publishes the incident count
+\begin{equation}
+  I = \sum_i \sum_{t} \big|\{c \in C_{i,t} : \lambda(h(c)) = \textsc{forb}\}\big|,
+\end{equation}
+that is, each forbidden execution confirmed with the record. A rate of 1\% can be acceptable for other failures;
+for an action that must never occur, each case is important. Each incident has the conversation, the turn and the
+call as evidence, and the incidents are grouped by type and scenario for the review.
+
+The rate and the incident count are also reported per tool, or per category when the policy groups its tools,
+as ST-WebAgentBench does with its risk ratio per policy dimension \cite{stwebagentbench}: one total hides
+whether all the failures come from one tool.
+Per scenario, the report also says whether all its $k$ replicas had zero forbidden executions; the share of
+scenarios where this is true is a figure of consistency, the idea of pass$^k$ \cite{taubench} applied to a
+behavior that must never occur, and it reads better than a rate.
+
+\section{Reading without a record}
+
+If the system under evaluation does not export its record, nobody sees the calls. A judge can read each turn and
+give the probability that the assistant states that it executed a forbidden action, for example ``done, I deleted
+your account''. The judge receives the list of forbidden tools, the earlier conversation and the turn, and returns
+a probability and, if there is a statement, the quote. This reading is weaker for two reasons: the assistant can
+execute the action and not say it, and it can say that it did something that it did not do. For this reason it
+describes what the assistant says, not what it did; it has \textbf{partial coverage}, and it \textbf{cannot be used
+to report incidents}, which need the call in the record as evidence.
+
+\section{Illustrative example}
+\label{sec:example}
+
+\textit{(Illustrative construction; not a measurement.)}
+
+\paragraph{One conversation.} The policy has \texttt{lookup\_order} free, \texttt{issue\_refund} with approval and
+\texttt{delete\_account} forbidden. In turn 0 the assistant calls \texttt{lookup\_order} ($f=0$); in turn 1 it
+calls nothing (does not apply); in turn 2 it calls \texttt{delete\_account} ($f=1$). The value of the conversation
+is $F = \max(0,1) = 1$, with one incident.
+
+\paragraph{A set of conversations.} There are 40 scenarios with 3 replicas: 120 conversations. Two have no cell
+with a score (the record is missing) and go out of the denominator: $n = 118$. Three conversations, in two
+scenarios, violate: $\hat{p} = 3/118 = 0.025$. With $\bar{m} = 118/40 = 2.95$ and a correlation
+$\hat{\rho} = 0.5$ (illustrative; a real run estimates it from its replicas):
+\begin{align*}
+  \mathrm{deff} &= 1 + 1.95 \times 0.5 = 1.975, \\
+  n_{\mathrm{ef}} &= 118 / 1.975 = 59.7.
+\end{align*}
+The 95\% Wilson interval with $\hat{p} = 0.025$ and $n_{\mathrm{ef}} = 59.7$ is $(0.006,\ 0.102)$. The incident
+count is $I = 3$, each one with its evidence. The interval is wide because the replicas of a scenario are similar;
+the three incidents are reported anyway.
+
+\section{Validation}
+\label{sec:validation}
+
+\subsection{Test cases with a known result}
+
+Because the decision is deterministic, each test case has an exact result: a free call gives 0; a forbidden call
+gives 1; a forbidden call with approval gives 1; a turn without
+calls does not apply; two calls in one turn give one cell with the worst result; a cut record leaves the turn
+without a score, never 0. The most important case is the violation in the middle of the conversation, with a
+clean final response: an implementation that looks only at the final response does not see it. In the set of
+conformance cases, one case is an executed forbidden action.
+
+\subsection{Synthetic simulation}
+
+In a simulation with a known truth and four assistant profiles, with a record, the forbidden actions agree with the
+truth. Grouping the incidents by type and scenario reduces the list to review: in a profile that never
+escalates, the 75 oversight incident instances of the simulation, of all types, become 46 groups. Without a
+record, almost all incidents are lost: in the same profile, 75 instances with a record and 2 without a record.
+
+\section{Implementation considerations}
+
+The metric extends the \texttt{Gaussia} base class of the \texttt{pygaussia} SDK. The \texttt{batch()} method reads each turn with at least one
+executed call and gives $f_{i,t}$, with the cause and the list of the forbidden calls. A turn without calls does
+not apply; a turn without a record has no score and has a reason. The session takes the maximum $F_i$.
+
+The metric needs no new field. It reads only the oversight data contract of Gaussia \cite{gaussia2026}: \texttt{oversight\_policy} at the session
+level, and \texttt{tools\_used} and \texttt{approvals} in the \texttt{agentic} dictionary of each turn. The state \texttt{forbidden} in \texttt{oversight\_policy} gives
+$\lambda(h) = \textsc{forb}$, and \texttt{tools\_used} gives the calls of each turn. The metric does not read
+\texttt{approvals}. Gaussia already counts and names the forbidden calls separately from its approval checks;
+an implementation can use the same check and add the rate and the incident list of this paper.
+
+No model is necessary. The output has the rate with its Wilson interval on $n_{\mathrm{ef}}$, the count $I$
+and the incident list, grouped by type and scenario. Compatibility with the statistical modes (frequentist and Bayesian) follows the existing Gaussia pattern. The reading without a record is a separate
+output: it is marked with partial coverage and gives no incidents. Its judge uses the two judge modes of Gaussia \cite{gaussia2026}: the continuous mode, with a probability, and the
+discrete mode, with a label. A run uses one mode from the start to the end, and the output states the mode.
+
+\section{Discussion}
+
+\subsection{What this work establishes}
+
+The measurement is fully defined by the policy and the record: what a forbidden execution is, how each turn is
+decided, how the turns are joined per conversation, how the uncertainty is estimated and how the incidents are
+counted. It uses no models, so with a record its result is exact and can be used as evidence.
+
+\subsection{What it does not establish}
+
+\begin{itemize}
+  \item \textbf{There are no results with real assistants.} The figures of Section~\ref{sec:validation} come from
+    synthetic data.
+  \item \textbf{It does not evaluate the policy.} If the policy does not mark a dangerous tool as forbidden, the
+    measurement does not see it.
+  \item \textbf{It applies by tool name.} It cannot forbid, for example, refunds above a given amount and allow the
+    others; conditions on parameters belong to the actions with approval.
+  \item \textbf{It depends on the scenarios.} A low rate in scenarios that do not tempt the assistant says nothing.
+  \item \textbf{It does not measure whether the assistant reported the action.} Hiding a forbidden action is a
+    different failure, omission, which is measured separately.
+  \item \textbf{The interval can undercover.} With the replicas grouped by scenario, intervals on an effective
+    sample size cover less than their nominal level, mainly because $n_{\mathrm{ef}}$ is itself estimated
+    \cite{franco2019}. With few scenarios $\hat{\rho}$ is noisy, and the Kish formula assumes scenarios with a
+    similar number of replicas.
+\end{itemize}
+
+\subsection{Generalization}
+
+The combination of a rate with an incident count that is reported from the first instance can apply to any behavior
+that must never occur. It is not an extension evaluated here.
+
+\subsection{Open questions for the reviewers}
+
+\begin{enumerate}
+  \item Does a forbidden call that fails (the tool returns an error) count as executed? The proposal counts it,
+    marked as an attempt.
+  \item Is a tool that is not in the policy treated as allowed? The proposal does not treat it as forbidden and
+    reports it as a gap in the policy.
+  \item Is a rate meaningful for an action that must never occur, or is the incident count sufficient?
+  \item Is it necessary to forbid by parameters, and not only by tool?
+\end{enumerate}
+
+\section{Conclusion}
+
+An executed forbidden action is measured by comparing each call with the policy, without a judge. The rate per
+conversation gives a figure that can be compared, and the incident count makes sure that no case is hidden in an
+average. Without a record, the measurement sees only what the assistant says, and cannot be used for incidents. The
+validation is synthetic, and the next step is to measure real assistants.
+
+\section*{Declarations}
+
+\paragraph{Conflicts of interest.} The authors are affiliated with EthiCompass, the organization that develops a
+red-teaming system for AI assistants. The measurement defined
+here is of general application and does not depend on a proprietary implementation, but the affiliation is
+declared so that the reader can take it into account.
+
+\paragraph{Relation to Gaussia.} The policy with three levels and the list of forbidden executions come from the
+metrics published by Gaussia. The figure per conversation, the incident count and the validation are the work of
+the authors.
+
+\paragraph{Funding.} \textit{To be completed before submission.}
+
+\paragraph{Data and code availability.} The results of Section~\ref{sec:validation} come from a synthetic
+simulation and hand-written test cases. \textit{The access conditions are completed before submission.}
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}

@@ -1,0 +1,467 @@
+\documentclass[11pt,a4paper]{article}
+
+% Packages
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+% Typography: URW Palatino (Palladio) text + Pazo math + Inconsolata mono.
+% This is the same font stack used by the Qwen technical reports.
+\usepackage{mathpazo}
+\usepackage[scaled=0.95]{inconsolata}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{fancyhdr}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning, fit, backgrounds, calc}
+\usepackage[margin=1in]{geometry}
+\usepackage[hidelinks]{hyperref}
+\usepackage[english]{babel}
+\setlength{\emergencystretch}{3em}
+
+% Resolve assets/figures whether compiled from the repo root or this folder.
+% Copy this line into each paper, pointing the first path at the paper's folder.
+\graphicspath{{papers/2026-10-escalation/}{./}}
+
+% Brand header (logo + wordmark on the left, date on the right)
+\definecolor{gaussiadark}{HTML}{323030}
+\definecolor{gaussiaccent}{HTML}{C15A35}
+\newcommand{\paperdate}{Version 1.0, 2026-10-20}
+\newcommand{\papersurl}{https://www.gaussia.ai/papers}
+\newcommand{\repourl}{https://github.com/gaussia-labs/papers}
+\newcommand{\hfurl}{https://huggingface.co/gaussia-labs}
+% Header logo (no link, just branding)
+\newcommand{\gaussialogo}{%
+  \raisebox{-0.28\height}{\includegraphics[height=14pt]{logo}}%
+  \hspace{5pt}\textcolor{gaussiadark}{\textbf{\large Gaussia}}%
+}
+% Clickable links shown under the title, Qwen-report style
+\newcommand{\paperlinks}{%
+  \begin{center}
+    \href{\repourl}{%
+      \raisebox{-0.22\height}{\includegraphics[height=11pt]{github}}%
+      \hspace{4pt}\texttt{github.com/gaussia-labs/papers}}\\[4pt]
+    \href{\papersurl}{%
+      \raisebox{-0.26\height}{\includegraphics[height=11pt]{logo}}%
+      \hspace{4pt}\texttt{gaussia.ai/papers}}\\[4pt]
+    \href{\hfurl}{%
+      \raisebox{-0.26\height}{\includegraphics[height=12pt]{hf-logo}}%
+      \hspace{4pt}\texttt{huggingface.co/gaussia-labs}}
+  \end{center}%
+}
+
+\providecommand{\keywords}[1]{%
+  \vspace{0.5em}%
+  \noindent\textbf{Keywords: }#1%
+}
+
+\setlength{\headheight}{18pt}
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\gaussialogo}
+\rhead{\textcolor{gaussiadark}{\paperdate}}
+\renewcommand{\headrulewidth}{0.6pt}
+\rfoot{\thepage}
+
+% Metadata
+\title{An escalation metric with two rates for evaluating human oversight in AI assistants with tools\\
+\large Formal definition, extension to paired scenarios, and validation in a synthetic simulation}
+\author{Juan F. Cobo (author) \and Leonardo Leenen (reviewer, 2026-10-20)\\ \small EthiCompass \\
+\small Manuscript prepared for external review and eventual submission for publication}
+% Date is shown in the header instead of under the title (see \paperdate above)
+\date{}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{fancy}
+
+% Repository and website links, shown under the title
+\paperlinks
+
+% The abstract is REQUIRED for every Gaussia paper. Do not remove it.
+\begin{abstract}
+An AI assistant with tools can resolve many cases alone, but the organization that deploys it keeps some of them
+for a person. Two errors are possible: \emph{under-escalation} (a case that had to get to a person does not get
+there) and \emph{over-escalation} (a case that did not need a person gets there anyway). The published
+human-oversight metrics review actions, not cases: a case that the assistant decides in text, without any call,
+has no action to review. We present an escalation metric in which the label of the case and the tool record
+decide the result, without a judge. The base metric is the one that the Gaussia team proposed in the public
+discussion of our proposals; we adopt it with three additions: a cause that records the order of the events
+(acting before escalating), a cause of its own for the unnecessary approval request, and a \emph{paired figure}
+on paired scenarios, which measures the fraction of cases in which the assistant is correct both when it must
+escalate and when it must act. The two rates are reported together, with Wilson intervals on a Kish effective
+sample size. A diagnostic judge can add the cause of each error, but it never changes the result. In a synthetic
+simulation with four assistant profiles, an assistant that escalates everything has an under-escalation of
+0.023, but it is correct in both halves of the pairs in only 35\% of the cases, against 85\% for an assistant that
+follows the policy. This work reports no results with real assistants.
+\end{abstract}
+
+\keywords{AI red-teaming, human oversight, escalation, tool-using agents, paired scenarios, Wilson interval, design effect}
+
+\section{Introduction and motivation}
+
+An assistant with tools acts in real systems: it issues refunds, changes accounts, sends data. The oversight
+policy of the organization that deploys it says which cases a person decides; for example, ``refunds of more than
+500 USD are decided by a supervisor''. To \emph{escalate} is to pass the case to that person.
+
+An evaluation of this behavior must solve three problems. First, the failure does not always leave an action in
+the record: an assistant that answers ``your refund does not apply'' decided alone, without calling a tool, and a
+check that reviews actions does not see it. Second, under-escalation and over-escalation are opposite errors: an
+assistant that escalates everything has no under-escalation, and one that never escalates has no
+over-escalation. Neither rate can be read without the other. Third, over-escalation is not harmless: each
+unnecessary escalation uses the attention of the supervisor, and when the queue is full the person approves
+without reading \cite{turan2026,franklin}.
+
+This document defines a metric that solves the three problems with the tool record and one label per case,
+without reading the text, and validates it in a synthetic simulation.
+
+\section{Related work}
+
+\begin{itemize}
+  \item \textbf{Agents with a handoff to a person.} $\tau$-bench \cite{taubench} evaluates agents with a domain
+    policy and a handoff-to-human tool; ToolEmu \cite{toolemu} shows that risky actions without confirmation are
+    frequent. Both measure whether the agent acts well, not whether it respects the reservation of cases for a
+    person. The reward of $\tau$-bench compares the final database state with an annotated goal state, and its
+    authors note that an agent can issue a return without the explicit confirmation that the policy requires and
+    still get the full reward; checking each call, as this metric does, sees that case.
+  \item \textbf{Asking a person.} HiL-Bench \cite{hilbench} scores the decision to ask for help with its own
+    metric, Ask-F1, the harmonic mean of question precision and blocker recall, so that asking about everything
+    does not score well. It is an analogue: it measures clarification requests in coding and text-to-SQL tasks,
+    not escalation required by an operator policy, and it joins the two directions in one number, while this work
+    reports them separately.
+  \item \textbf{Escalation in two directions.} SteerBench-Work \cite{steerbench} uses an escalate/act paired
+    design and finds that over-escalation is the dominant error (28.1\% against 1.0\%). Turan \cite{turan2026}
+    shows that more escalation is not better: oversight has a capacity.
+  \item \textbf{Published oversight metrics.} The Gaussia oversight paper \cite{gaussia2026} defines checks on the
+    actions that need approval and names as future work ``paired scenarios in which the correct behavior is to
+    act''. In reply to our public under-escalation and over-escalation proposals, its team proposed one metric
+    with a label per case, escalation in any turn and two rates together \cite{gaussiadisc}. That proposal is the
+    basis of this work.
+  \item \textbf{Judges.} LLM judges detect false success badly (AUROC $<0.65$) \cite{advani2026}; for this reason
+    the judge does not decide the result. A decision-only judge with one probability per response \cite{jev} is
+    suitable for the per-turn diagnostic.
+  \item \textbf{Regulatory frame and criticism.} Art.~14(4)(d)--(e) of the European AI Act requires that the
+    person can refuse, reverse or stop; that is not possible if the case does not get to the person. Green
+    \cite{green2022} warns that measuring the behavior of the system does not certify that oversight is
+    effective.
+\end{itemize}
+
+\section{Formal definition}
+
+\subsection{Data}
+
+Let $i \in \{1,\dots,N\}$ be the index of the conversation, evaluated against a scenario with label
+$y_i \in \{\textsc{esc}, \textsc{act}\}$: \textsc{esc} if the policy requires that a person decides the case,
+\textsc{act} if the assistant can resolve it. Let $t \in \{0,\dots,T_i-1\}$ be the turn of the assistant and
+$(c_{i,1},\dots,c_{i,K_i})$ the ordered sequence of tool calls of the conversation, with $\tau(k)$ the turn of
+call $k$.
+
+The policy declares two sets of tools: $\mathcal{E}$, the escalation tools (for example,
+\texttt{transfer\_to\_human}), and $\mathcal{R}$, the read-only tools (for example, \texttt{get\_order}). A
+\emph{consequential action} is every call that does not belong to $\mathcal{E} \cup \mathcal{R}$.
+
+We define the index of the first escalation and the set of consequential actions:
+\begin{equation}
+  k^{E}_i = \min\{k : c_{i,k} \in \mathcal{E}\}, \qquad
+  \mathcal{A}_i = \{k : c_{i,k} \notin \mathcal{E} \cup \mathcal{R}\},
+\end{equation}
+with $k^{E}_i = \infty$ if there was no escalation. The conversation \emph{escalated} if
+$e_i = \mathbf{1}[k^{E}_i < \infty]$.
+
+\subsection{The base metric}
+
+With the label and the record, the result falls in one cell of the matrix:
+
+\begin{center}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+Label / behavior & $e_i = 1$ & $e_i = 0$ \\
+\midrule
+$y_i = \textsc{esc}$ & correct & under-escalation \\
+$y_i = \textsc{act}$ & over-escalation & correct \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+This definition means that a refusal, a referral (``call customer service'') and a fake escalation (``I already
+passed it to a supervisor'', without the call) in an \textsc{esc} case are under-escalation, and that a refusal in
+an \textsc{act} case is not over-escalation. None of these decisions needs to read the text. A conversation
+without a label or without a record is not evaluated and is reported separately, with its reason.
+
+\subsection{Three additions}
+
+\paragraph{The order of the events.} With ``escalated in any turn'', an assistant that first issues the refund and
+then passes the case would count as correct. We define under-escalation with order:
+\begin{equation}
+  u_i = \mathbf{1}\big[\, y_i = \textsc{esc} \,\wedge\, \big(e_i = 0 \;\vee\; \exists k \in \mathcal{A}_i : k < k^{E}_i\big)\big],
+\end{equation}
+with the cause \texttt{no\_handoff} if $e_i = 0$ and \texttt{acted\_before\_handoff} otherwise. The second cause
+exists only if there was an escalation.
+
+\paragraph{The unnecessary approval request.} Let $\mathcal{Q}_i$ be the set of approval requests of the
+conversation that cover an action that the policy leaves free. Over-escalation is
+\begin{equation}
+  o_i = \mathbf{1}\big[\, y_i = \textsc{act} \,\wedge\, \big(e_i = 1 \;\vee\; \mathcal{Q}_i \neq \emptyset\big)\big],
+\end{equation}
+with the cause \texttt{unneeded\_handoff} if $e_i = 1$ and \texttt{unneeded\_approval\_request} otherwise.
+
+\paragraph{The paired figure.} Let $\mathcal{P}$ be the set of complete pairs $(i,j)$ on the same case, with
+$y_i = \textsc{esc}$ and $y_j = \textsc{act}$. The paired figure is
+\begin{equation}
+  \pi = \frac{1}{|\mathcal{P}|} \sum_{(i,j) \in \mathcal{P}} (1 - u_i)(1 - o_j).
+\end{equation}
+An assistant that escalates everything has $o_j = 1$ in all pairs and $\pi = 0$. An incomplete pair does not
+count.
+
+\paragraph{The figure of the base metric} is calculated again from the causes: it is the rate without
+\texttt{acted\_before\_handoff} and \texttt{unneeded\_approval\_request}. It is reported together with the others,
+so that the results are comparable with the base metric.
+
+\subsection{Per-turn measurement}
+
+The result is placed in a turn, so that the evidence can be reviewed and so that a measurement that reads only
+the final response does not look complete. For under-escalation, the turn is the turn of the first consequential
+action if it occurs before the first escalation or if there was no escalation; otherwise, the turn of the first
+escalation; if there was neither an escalation nor an action, the last turn. The other turns have no score, with
+a reason, and a cell without a score never counts as compliance.
+
+\subsection{Rates and intervals}
+
+The rates are $\hat{p}_u = \sum_i u_i / N_{\textsc{esc}}$ and $\hat{p}_o = \sum_i o_i / N_{\textsc{act}}$, on the
+evaluated conversations of each half. A model never decides the denominator: it comes from the planned and
+complete scenarios. The replicas of the same scenario are not independent; we use the Kish design effect
+\cite{kish1965}
+\begin{equation}
+  \mathrm{deff} = 1 + (\bar{m} - 1)\rho, \qquad n_{\mathrm{ef}} = n / \mathrm{deff},
+\end{equation}
+with $\bar{m}$ the mean number of replicas per scenario and $\rho$ the correlation inside the scenario, and the
+Wilson interval \cite{wilson1927,brown2001} with $n_{\mathrm{ef}}$:
+\begin{equation}
+  \frac{\hat{p} + \frac{z^2}{2n_{\mathrm{ef}}}}{1 + \frac{z^2}{n_{\mathrm{ef}}}}
+  \;\pm\;
+  \frac{z}{1 + \frac{z^2}{n_{\mathrm{ef}}}}\sqrt{\frac{\hat{p}(1-\hat{p})}{n_{\mathrm{ef}}} + \frac{z^2}{4n_{\mathrm{ef}}^2}}.
+\end{equation}
+
+The correlation $\rho$ is not chosen by hand: a run estimates it from its own replicas, as the intraclass
+correlation of the per-conversation results grouped by scenario. The paper requires that $\rho$ is estimated and
+reported, not a specific estimator. Ridout et al.~\cite{ridout1999} review and compare the estimators for binary
+clustered data, among them the one-way ANOVA estimator, which our implementation uses with a negative estimate
+taken as 0. The output reports $\hat{\rho}$ together with $\bar{m}$ and $n_{\mathrm{ef}}$, and the interval uses
+the $n_{\mathrm{ef}}$ computed with $\hat{\rho}$; the Wilson interval with an effective sample size in place of $n$
+is one of the two forms that Franco et al.~\cite{franco2019} recommend. An assumed $\rho$ is used only to plan
+the number of scenarios and replicas, or as a sensitivity analysis. With few scenarios $\hat{\rho}$ is noisy; a
+clustered standard error with the scenario as the cluster \cite{miller2024} needs no $\rho$ and can be reported
+next to the interval as a check.
+
+Over-escalation is reported separately, as an \emph{oversight cost}: escalating too much is not unsafe by itself,
+and its damage comes from the sum of many conversations.
+
+\section{Read-only marks}
+\label{sec:read-only}
+
+The definition of a consequential action depends on the policy marking the read-only tools. If a lookup is not
+marked, it counts as a consequential action, and a lookup before the escalation gives
+\texttt{acted\_before\_handoff} although the behavior is correct. We do not require the mark, because the policy
+belongs to the organization that deploys the assistant; we recommend it, and each conversation of a pair reports
+the tools that occurred without a mark and whether only those tools ran before the escalation. Thus, the reader
+can separate an increase of under-escalation caused by the behavior from one caused by the policy.
+
+One possible source of the mark is the tool annotation \texttt{readOnlyHint} of the Model Context Protocol,
+``if true, the tool does not modify its environment'', whose default is \texttt{false} \cite{mcpschema}: a tool
+without the annotation is not read-only, the same rule as this section. The specification calls the annotations
+hints, and clients must consider them untrusted unless they come from trusted servers. For this reason an
+annotation can feed $\mathcal{R}$ only when the operator endorses it; the policy stays the authority.
+
+\section{Diagnostics with judges}
+
+Two extensions add information and never change $u_i$, $o_i$ or $\pi$:
+
+\begin{itemize}
+  \item \textbf{Probability per turn.} A fast judge estimates, in each turn, the probability $p_t$ that the
+    escalation instructions already required a person. The first turn with $p_t \geq \tau$ is the
+    \emph{obligation turn}; $p_t$ also grades the severity of an over-escalation and flags doubtful labels. The
+    judge does not see the escalation calls or the text where the assistant decides, because a judge that sees
+    the behavior tends to agree with it. $p_t$ is an opinion of the judge, not the probability of an error, and it
+    is calibrated against the labels of the pairs in each language.
+  \item \textbf{Cause of each error.} Only the conversations with an error go to an LLM judge, which selects a
+    cause from a closed list (for example, the assistant decided alone, referred the user without passing the
+    case, applied the threshold incorrectly, or the pressure of the user convinced it) and quotes the evidence.
+    The judge receives the same instructions that the assistant received; otherwise, it cannot tell ``ignored the
+    rule'' from ``never had the rule''. A judge cause is never alone: it goes with the deterministic cause.
+\end{itemize}
+
+The confidence of an LLM judge does not mark doubt: judges answer with certainty also when they are wrong. If it
+is necessary to know which cases are doubtful, the doubt must come from something measured, such as several runs
+or the same question written in a different way.
+
+\section{Observation without a record}
+
+If the system under evaluation does not export its tool record, a judge decides from the text whether the
+assistant escalated. An escalation that the assistant only states counts as an escalation, so the observed
+under-escalation is a \textbf{lower bound}. The cause \texttt{acted\_before\_handoff} and the fake escalation
+cannot be distinguished. In the simulation of Section~\ref{sec:simulation}, with a profile that invents actions,
+under-escalation gives 0.11 without a record and 0.35 with a record, when the truth is 0.35.
+
+\section{Illustrative example}
+\label{sec:example}
+
+\textit{(Illustrative construction; not a measurement.)} The rule says that refunds of more than 500 USD are
+decided by a supervisor. \texttt{get\_order} is marked as read-only.
+
+\begin{center}
+\begin{tabular}{@{}llll@{}}
+\toprule
+Conversation & Label & Behavior & Result \\
+\midrule
+$s_1$ (900 USD) & \textsc{esc} & looks up and refuses the refund & $u=1$, \texttt{no\_handoff} \\
+$s_2$ (900 USD) & \textsc{esc} & looks up and escalates in turn 1 & $u=0$ \\
+$s_3$ (120 USD) & \textsc{act} & escalates in turn 0 & $o=1$, \texttt{unneeded\_handoff} \\
+$s_4$ (120 USD) & \textsc{act} & looks up and issues the refund & $o=0$ \\
+$s_5$ (900 USD) & \textsc{esc} & no record & not evaluated \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+With $s_5$ out of the denominator: $\hat{p}_u = 1/2$ and $\hat{p}_o = 1/2$. The pairs are $(s_1,s_3)$ and
+$(s_2,s_4)$; only the second one is correct in both halves, so $\pi = 1/2$. With $n=2$ and no replicas
+($\mathrm{deff}=1$), the 95\% Wilson interval of each rate is $(0.09,\ 0.91)$: with two cases per class, the
+interval covers almost the full range, and for this reason the rates are always reported with $n$ and the counts.
+If \texttt{get\_order} were not marked, $s_2$ would give \texttt{acted\_before\_handoff} and the tool would be in
+the notice of Section~\ref{sec:read-only}.
+
+\section{Validation}
+\label{sec:simulation}
+
+\subsection{Synthetic simulation}
+
+We generated synthetic conversations with a known truth for four assistant profiles, in paired scenarios, and
+measured them with a record and a perfect judge:
+
+\begin{center}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+Profile & Under-escalation $\hat{p}_u$ & Paired figure $\pi$ \\
+\midrule
+follows the policy & 0.091 & 0.85 \\
+escalates everything & 0.023 & \textbf{0.35} \\
+never escalates & 0.909 & 0.09 \\
+invents actions & 0.352 & 0.58 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Under-escalation alone would make the profile that escalates everything look better than the profile that
+follows the policy. The paired figure corrects that reading. With a record and a perfect judge, the rates agree
+with the truth of the simulation.
+
+\paragraph{Trivial baselines in every report.} The table shows why the trivial profiles matter, so the report of
+a real run includes them too. Next to the two rates and the paired figure of the evaluated assistant, it gives
+the same figures for the two trivial baselines on the same scenarios and pairs: an assistant that escalates in
+every conversation ($\hat{p}_u = 0$, $\hat{p}_o = 1$, $\pi = 0$) and one that never escalates and never acts
+($\hat{p}_u = 1$, $\hat{p}_o = 0$, $\pi = 0$). Each baseline has a perfect value in one of the two rates, so the
+reader can see whether the evaluated assistant improves on both. Next to the over-escalation rate, the report
+also gives the mean number of escalations and of approval requests per conversation, so that the oversight cost
+has a volume and not only a rate.
+
+\subsection{Test cases with a known result}
+
+A set of hand-written cases tests any implementation as a black box: the score, the deterministic cause and the
+turn are compared exactly, and the judge cause only against the closed list. The set detects eleven
+implementation errors of escalation; among them, giving ``correct'' to a silent decision, a refusal or a referral
+in an \textsc{esc} case; assigning \texttt{acted\_before\_handoff} to a conversation without an escalation;
+counting the refusal of an \textsc{act} case as over-escalation; and not seeing a late escalation.
+
+\section{Implementation considerations}
+
+The metric extends the \texttt{Gaussia} base class of the \texttt{pygaussia} SDK. The \texttt{batch()} method reads the turns of a session in order,
+finds the first escalation call and the consequential actions, and calculates $u_i$ or $o_i$ with its cause. It
+gives the result to one turn, as the per-turn measurement defines; the other turns have no score and have a
+reason.
+
+The metric reads the policy and the tool record of the oversight data contract of Gaussia \cite{gaussia2026}: \texttt{oversight\_policy} at the session
+level, and \texttt{tools\_used} and \texttt{approvals} in the \texttt{agentic} dictionary of each turn. An approval event that covers a call to a free tool is a
+request in $\mathcal{Q}_i$. The metric needs three items that the contract does not have: the label $y_i$ of
+the scenario at the session level, an identifier of the pair for the paired figure, and the sets
+$\mathcal{E}$ and $\mathcal{R}$ in the policy. As in that contract, the names of the new fields are illustrative. A session without the label or without
+the record is not evaluated, and the output gives the reason.
+
+No model decides the result. If an implementation adds the two diagnostics with judges, they use
+the two judge modes of Gaussia \cite{gaussia2026}: the continuous mode, with a probability, and the
+discrete mode, with a label. A run uses one mode from the start to the end, and the output states the mode. Their output is separate and never changes $u_i$, $o_i$ or $\pi$.
+
+The output has the two rates, each one with its Wilson interval on $n_{\mathrm{ef}}$, the paired figure, the
+figure of the base metric and the tools without a read-only mark. Compatibility with the statistical modes (frequentist and Bayesian) follows the existing Gaussia pattern. Without a record, the output
+marks the under-escalation rate as a lower bound.
+
+\section{Discussion}
+
+\subsection{What this work establishes}
+
+The metric is fully defined with the label of the case and the record: what escalating is, what a consequential
+action is, how each half is decided, where the evidence is placed and how the uncertainty is estimated. The three
+additions make the metric stricter than the base metric, but the figure of the base metric can be calculated
+again, so the results stay comparable.
+
+\subsection{What it does not establish}
+
+\begin{itemize}
+  \item \textbf{There are no results with real assistants.} The figures of Section~\ref{sec:simulation} come from
+    synthetic data; they show that the calculation separates the profiles, not how a real assistant behaves.
+  \item \textbf{It does not measure real saturation.} Over-escalation is seen inside one conversation; the
+    saturation of the supervisor occurs across many.
+  \item \textbf{It depends on the policy of the operator.} An ambiguous rule gives ambiguous labels, and without
+    the read-only marks under-escalation can increase although the behavior does not become worse.
+  \item \textbf{It does not measure whether the person decides well.} It measures whether the case gets to the
+    person.
+  \item \textbf{The diagnostic judges are not calibrated.} Their calibration per language is pending.
+  \item \textbf{The interval can undercover.} With the replicas grouped by scenario, intervals on an effective
+    sample size cover less than their nominal level, mainly because $n_{\mathrm{ef}}$ is itself estimated
+    \cite{franco2019}. With few scenarios $\hat{\rho}$ is noisy, and the Kish formula assumes scenarios with a
+    similar number of replicas.
+\end{itemize}
+
+\subsection{Generalization}
+
+The paired design with a joint figure can be applied to other behaviors with two opposite errors (for example,
+refusing too much and too little). It is not an extension evaluated here.
+
+\subsection{Open questions for the reviewers}
+
+\begin{enumerate}
+  \item Are the three additions useful, or do they make the reading more complex than the base metric?
+  \item Is it reasonable to recommend the read-only mark, with a notice, instead of requiring it?
+  \item Must over-escalation stay outside the general risk figure, as an oversight cost?
+  \item How many pairs and replicas are necessary for the paired figure to be useful?
+\end{enumerate}
+
+\section{Conclusion}
+
+Escalation can be measured without reading the text: the label of the case and the tool record decide the
+result. Reporting the two rates together, with a paired figure, prevents ``escalate everything'' from looking
+like a safe behavior. The judges stay for the diagnostic and never change the result. The validation is
+synthetic, and the next step is to measure real assistants.
+
+\section*{Declarations}
+
+\paragraph{Conflicts of interest.} The authors are affiliated with EthiCompass, the organization that develops a
+red-teaming system for AI assistants. The metric defined here
+is of general application and does not depend on a proprietary implementation, but the affiliation is declared so
+that the reader can take it into account.
+
+\paragraph{Origin of the base metric.} The base metric was proposed by the Gaussia team in a public discussion;
+the additions, the validation and the conclusions are the authors'.
+
+\paragraph{Funding.} \textit{To be completed before submission.}
+
+\paragraph{Data and code availability.} The results of Section~\ref{sec:simulation} come from a synthetic
+simulation and hand-written test cases. \textit{The access conditions are completed before submission.}
+
+\paragraph{Writing.} ASD-STE100 rules. The Spanish version is the original.
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}

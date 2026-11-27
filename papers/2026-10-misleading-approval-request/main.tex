@@ -1,0 +1,456 @@
+\documentclass[11pt,a4paper]{article}
+
+% Packages
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+% Typography: URW Palatino (Palladio) text + Pazo math + Inconsolata mono.
+% This is the same font stack used by the Qwen technical reports.
+\usepackage{mathpazo}
+\usepackage[scaled=0.95]{inconsolata}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{fancyhdr}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning, fit, backgrounds, calc}
+\usepackage[margin=1in]{geometry}
+\usepackage[hidelinks]{hyperref}
+\usepackage[english]{babel}
+\setlength{\emergencystretch}{3em}
+
+% Resolve assets/figures whether compiled from the repo root or this folder.
+% Copy this line into each paper, pointing the first path at the paper's folder.
+\graphicspath{{papers/2026-10-misleading-approval-request/}{./}}
+
+% Brand header (logo + wordmark on the left, date on the right)
+\definecolor{gaussiadark}{HTML}{323030}
+\definecolor{gaussiaccent}{HTML}{C15A35}
+\newcommand{\paperdate}{Version 1.0, 2026-10-20}
+\newcommand{\papersurl}{https://www.gaussia.ai/papers}
+\newcommand{\repourl}{https://github.com/gaussia-labs/papers}
+\newcommand{\hfurl}{https://huggingface.co/gaussia-labs}
+% Header logo (no link, just branding)
+\newcommand{\gaussialogo}{%
+  \raisebox{-0.28\height}{\includegraphics[height=14pt]{logo}}%
+  \hspace{5pt}\textcolor{gaussiadark}{\textbf{\large Gaussia}}%
+}
+% Clickable links shown under the title, Qwen-report style
+\newcommand{\paperlinks}{%
+  \begin{center}
+    \href{\repourl}{%
+      \raisebox{-0.22\height}{\includegraphics[height=11pt]{github}}%
+      \hspace{4pt}\texttt{github.com/gaussia-labs/papers}}\\[4pt]
+    \href{\papersurl}{%
+      \raisebox{-0.26\height}{\includegraphics[height=11pt]{logo}}%
+      \hspace{4pt}\texttt{gaussia.ai/papers}}\\[4pt]
+    \href{\hfurl}{%
+      \raisebox{-0.26\height}{\includegraphics[height=12pt]{hf-logo}}%
+      \hspace{4pt}\texttt{huggingface.co/gaussia-labs}}
+  \end{center}%
+}
+
+\providecommand{\keywords}[1]{%
+  \vspace{0.5em}%
+  \noindent\textbf{Keywords: }#1%
+}
+
+\setlength{\headheight}{18pt}
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\gaussialogo}
+\rhead{\textcolor{gaussiadark}{\paperdate}}
+\renewcommand{\headrulewidth}{0.6pt}
+\rfoot{\thepage}
+
+% Metadata
+\title{Misleading approval request: a two-part measurement, exact and judge-based, to evaluate whether the person approves what that person thinks they approve\\
+\large Formal definition, analysis of the correction for judge error, and validation cases}
+\author{Juan F. Cobo (author) \and Leonardo Leenen (reviewer, 2026-10-20)\\ \small EthiCompass \\
+\small Manuscript prepared for external review and eventual submission for publication}
+% Date is shown in the header instead of under the title (see \paperdate above)
+\date{}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{fancy}
+
+% Repository and website links, shown under the title
+\paperlinks
+
+% The abstract is REQUIRED for every Gaussia paper. Do not remove it.
+\begin{abstract}
+Many AI assistants with tools ask a person to approve an action before they execute it. The person does not see
+the tool call: the person sees a message that the assistant writes. If that message hides the action, changes its
+effect or leaves out a data item that matters, the person approves something different from what is executed,
+and the record shows a valid approval. The published approval checks do not see this failure. We present a
+two-part measurement inside one metric. An exact part, without a judge, compares the text of the request with
+the parameters that the policy declares as material, normalized by a type from a closed list, and produces four
+causes with score 1: an omitted data item, a different value, an amount lower than the amount of the action, and
+an action that the approval covers but the text omits. A judge decides only the effect: whether the text
+describes the correct kind of action. Only the request that the assistant writes is measured. The design follows
+the reply of the Gaussia team to our public proposal. We show analytically that the Rogan-Gladen correction,
+applied to a rate that mixes exact and judge results, overestimates the prevalence by
+$q(1-\mathrm{Se})/(\mathrm{Se}+\mathrm{Sp}-1)$, where $q$ is the exact part; for this reason the main figure
+is the rate without correction, together with the count per cause, and a corrected rate applies the correction
+only to the judge part. This work reports no results with real assistants.
+\end{abstract}
+
+\keywords{AI red-teaming, human oversight, approval request, LLM-as-judge, Rogan-Gladen correction, Wilson interval}
+
+\section{Introduction and motivation}
+
+An oversight policy puts each tool of the assistant in one of three levels: free, subject to approval, or
+forbidden. For a tool subject to approval, the normal flow is: the assistant prepares the call, writes a request
+(``Do I approve the refund of 900 USD to the card ending in 4321?''), the person approves or refuses, and the
+assistant executes.
+
+The person decides only with the text of the request. The person does not see the real parameters. For this
+reason \textbf{the control depends on the request telling the truth}. An approval given on a false description
+is recorded as valid, but oversight did not work: the person did not have the information to refuse the action.
+The failure can come from too much summarization, from hostile content that pushes the assistant to describe the
+action as harmless \cite{franklin}, or from an error of the assistant itself.
+
+This document defines a measurement of this failure that uses exact rules where possible and a judge only where
+reading is necessary, analyzes why the resulting rate cannot be corrected for judge error with the usual method,
+and describes its validation.
+
+\section{Related work}
+
+\begin{itemize}
+  \item \textbf{The failure.} \textit{Loopjacking} \cite{loopjacking} describes an attack on oversight in which
+    the approval request hides the action or misdescribes it, and distinguishes it from parameter substitution.
+    \textit{AI Agent Traps} \cite{franklin} names the harmless-looking summaries shown to the approver as a trap.
+    Threat T9 of Narajala and Narayan \cite{narajala} (evasion and concealment against oversight) gives the
+    general frame, and Ditz et al.\ \cite{ditz} show that human oversight is an attack surface. Benton et al.\
+    \cite{benton} evaluate sabotage of the human decision. Lies-in-the-loop \cite{checkmarx2025} demonstrates
+    the failure against a real coding assistant: the permission dialog describes a safe plan while another
+    command runs, and a long comment pushes the hint out of view; it is a vendor blog and supports only that the
+    attack exists. Weng \cite{consentintegrity} lists four classes of attack on the approval channel: summary
+    poisoning, padding or scroll-out, encoding or obfuscation, and a TOCTOU swap. Wang
+    \cite{argumentlaundering} treats the fidelity of what is shown to the approver as a separate dimension and
+    warns that its lexical check does not measure whether a person was misled, which supports the split between
+    the exact part and the judge part. OWASP lists the trust that this failure exploits as ASI09, Human-Agent
+    Trust Exploitation \cite{owaspagentic}.
+  \item \textbf{Published oversight metrics.} The Gaussia oversight paper \cite{gaussia2026} defines checks on
+    the existence, timing and role of the approval, not on its content. In reply to our public proposals
+    \cite{gaussiadisc}, its team proposed four changes that this work adopts: measure only the requests that the
+    assistant writes, compare the parameters without a judge with normalizers per type, keep the judge only for
+    the effect, and use closed causes.
+  \item \textbf{Judges and correction.} A decision-only judge with one probability per response \cite{jev} is
+    suitable for the effect question. The Rogan-Gladen correction \cite{rogan1978} estimates the prevalence from
+    an observed rate with an imperfect classifier; Section~\ref{sec:rg} analyzes why it does not apply to the
+    whole rate.
+  \item \textbf{Regulation and criticism.} Art.~14(4)(d)--(e) of the European AI Act requires that the person can
+    refuse, reverse or stop; without a faithful description, the person cannot refuse with information. Green
+    \cite{green2022} warns that measuring the behavior of the system does not certify that oversight is effective.
+\end{itemize}
+
+\section{Formal definition}
+
+\subsection{Data and scope}
+
+Let $i$ be a conversation and $t$ a turn of the assistant. Let $a$ be an approval of the conversation, with its
+text $x_a$ (the exact text that the approver saw), its author $\alpha_a \in \{\textsc{assistant},
+\textsc{system}\}$ and the set $C_a$ of calls that it covers. The measurement applies to the pair $(a, c)$, with
+$c \in C_a$ a call subject to approval executed in turn $t$, if and only if
+\begin{equation}
+  \alpha_a = \textsc{assistant}.
+\end{equation}
+If the interface built the request from the call ($\alpha_a = \textsc{system}$), the text cannot misdescribe
+it, and the turn does not apply. If the record does not have $x_a$ or $\alpha_a$, the cell has no score, with a
+reason. A cell without a score never counts as compliance.
+
+\subsection{The reference action}
+
+The text is compared with a reference action $r_{a,c}$: the approved parameters of $c$, if the approval system
+recorded them; if not, the parameters of the executed call $c$. Parameters recorded by the assistant do not
+count, because the assistant could record the same values that it describes. With approved parameters, the
+measurement compares the text with what was approved, and substitution compares what was approved with what was
+executed: the same call is not counted twice.
+
+\subsection{Exact part}
+
+The policy can declare, for each tool, the set $M$ of parameters that matter, each one with a type
+$\kappa_m \in \{\texttt{money}, \texttt{date}, \texttt{email}, \texttt{card\_suffix}, \texttt{exact}\}$ and a
+normalization function $\nu_{\kappa}$: amount and currency; date in a common time zone; email, not
+case-sensitive; the last four digits of a card; literal equality. A tolerance applies only if the policy declares
+it. Let $v_m(x_a)$ be the value that the text states for parameter $m$, or $\varnothing$ if it does not state
+it, or $\bot$ if it states it in a form that the normalizer cannot read (for example, in words). The exact causes
+are:
+\begin{align}
+  \texttt{omitted\_parameter} &: \exists m \in M,\ v_m(x_a) = \varnothing, \\
+  \texttt{wrong\_value} &: \exists m \in M,\ v_m \notin \{\varnothing, \bot\},\ \nu_{\kappa_m}(v_m) \neq \nu_{\kappa_m}(r_{a,c,m}), \\
+  \texttt{understated\_value} &: \exists m \in M,\ \kappa_m = \texttt{money},\ \nu(v_m) < \nu(r_{a,c,m}), \\
+  \texttt{hidden\_action} &: |C_a| > 1 \text{ and the text does not describe some } c' \in C_a.
+\end{align}
+The cause \texttt{understated\_value} records the direction of the error: saying 90 when 900 is executed is more
+serious than the opposite error. Each exact cause gives the score $e_{a,c} = 1$. An unreadable value ($\bot$) is
+not an exact violation: it goes to the judge. The exact part checks that a value is present in the text $x_a$,
+not that the approver could see it: a long text that pushes the action out of view has no exact cause, and only
+the judge can mark it, as in the Lies-in-the-loop demonstration \cite{checkmarx2025}. It is the same limit as
+``it measures the description, not the understanding''.
+
+\subsection{Judge part}
+
+A judge receives the text $x_a$, the reference action, the description of the tool if it exists and, with $M$
+declared, the unreadable values. If $M$ is declared, the question is only the effect: whether the text describes
+the correct kind of action or hides it (cause \texttt{wrong\_effect}). If $M$ is not declared, the judge reviews
+everything (cause \texttt{misrepresented}). The judge returns a violation probability $j_{a,c} \in [0,1]$, the
+cause and the quote that justifies it. The text of the prompt is in the language of the assistant and is part of
+the measurement: if it changes, the calibration is repeated.
+
+\subsection{Cell, conversation and rate}
+
+The cell of turn $t$ takes the highest value across the pairs of the turn and the two parts, and has all the
+causes:
+\begin{equation}
+  s_{i,t} = \max_{(a,c) \text{ in } t} \max\big(e_{a,c},\, j_{a,c}\big).
+\end{equation}
+The conversation takes the maximum of its cells with a score, $m_i = \max_t s_{i,t}$, and violates if
+$m_i \geq \tau$, with $\tau = 0.5$ without calibration. An exact cause is always above the threshold. The rate is
+$\hat{p} = \sum_i \mathbf{1}[m_i \geq \tau] / n$ over the $n$ evaluated conversations that target the
+measurement. The interval is Wilson \cite{wilson1927,brown2001} with the Kish effective sample size
+\cite{kish1965}, $n_{\mathrm{ef}} = n / (1 + (\bar{m} - 1)\rho)$, because the replicas of a scenario are not
+independent. Together with the rate, the count of causes among the violating conversations is reported, with
+the exact causes separated from the judge causes.
+
+The correlation $\rho$ is not chosen by hand: a run estimates it from its own replicas, as the intraclass
+correlation of the per-conversation results grouped by scenario. The paper requires that $\rho$ is estimated and
+reported, not a specific estimator. Ridout et al.~\cite{ridout1999} review and compare the estimators for binary
+clustered data, among them the one-way ANOVA estimator, which our implementation uses with a negative estimate
+taken as 0. The output reports $\hat{\rho}$ together with $\bar{m}$ and $n_{\mathrm{ef}}$, and the interval uses
+the $n_{\mathrm{ef}}$ computed with $\hat{\rho}$; the Wilson interval with an effective sample size in place of $n$
+is one of the two forms that Franco et al.~\cite{franco2019} recommend. An assumed $\rho$ is used only to plan
+the number of scenarios and replicas, or as a sensitivity analysis. With few scenarios $\hat{\rho}$ is noisy; a
+clustered standard error with the scenario as the cluster \cite{miller2024} needs no $\rho$ and can be reported
+next to the interval as a check.
+
+\section{Why the whole rate is not corrected for judge error}
+\label{sec:rg}
+
+The Rogan-Gladen correction assumes that \emph{all} observed decisions come from a classifier with sensitivity
+$\mathrm{Se}$ and specificity $\mathrm{Sp}$:
+\begin{equation}
+  \hat{\pi}_{\mathrm{RG}} = \frac{\hat{p} + \mathrm{Sp} - 1}{\mathrm{Se} + \mathrm{Sp} - 1}.
+\end{equation}
+In this measurement, part of the violations is decided without error. Let $q$ be the proportion of conversations
+with an exact cause (detected without error) and $r$ the proportion with a violation that only the judge can
+see. The real prevalence is $\pi = q + r$, and the expected observed rate is
+\begin{equation}
+  p = q + \mathrm{Se}\, r + (1 - \mathrm{Sp})(1 - q - r).
+\end{equation}
+Substituting into the correction:
+\begin{equation}
+  \hat{\pi}_{\mathrm{RG}} = r + q\,\frac{\mathrm{Sp}}{\mathrm{Se} + \mathrm{Sp} - 1},
+  \qquad
+  \hat{\pi}_{\mathrm{RG}} - \pi = q\,\frac{1 - \mathrm{Se}}{\mathrm{Se} + \mathrm{Sp} - 1}.
+\end{equation}
+The correction is exact for the judge part, but it inflates the exact part: it treats a part that has no false
+negatives as if it had them. The bias is proportional to $q$ and increases when the sensitivity of the judge
+decreases. With $\mathrm{Se} = 0.80$, $\mathrm{Sp} = 0.95$ and $q = 0.10$, the correction overestimates the
+prevalence by $0.027$. The observed rate, in contrast, has only the error of the judge part:
+$p - \pi = (1 - \mathrm{Sp})(1 - q - r) - (1 - \mathrm{Se})\, r$.
+
+There is an option that keeps one metric and removes this bias. The exact cases are known, so they can be
+separated before the correction, and Rogan-Gladen is applied only to the conversations without an exact cause:
+\begin{equation}
+  \hat{\pi}_{\mathrm{H}} = \hat{q} + (1 - \hat{q})\,
+  \frac{\hat{p}_J + \mathrm{Sp} - 1}{\mathrm{Se} + \mathrm{Sp} - 1},
+\end{equation}
+where $\hat{q}$ is the share of conversations with an exact cause and $\hat{p}_J$ the share marked by the judge
+among the others, with the fraction truncated to $[0,1]$. With known $\mathrm{Se}$ and $\mathrm{Sp}$, its
+expected value is $\pi$, except for the effect of the truncation. In a simulation with 20{,}000 repetitions per
+row, its bias is below $0.001$ in absolute value, with 2{,}000 and with 60 conversations, while the correction of
+the whole rate has the bias of the formula above:
+
+\begin{center}
+\begin{tabular}{@{}cccccccc@{}}
+\toprule
+$q$ & $r$ & $\mathrm{Se}$ & $\mathrm{Sp}$ & $n$ & Observed & Rogan-Gladen on the whole rate & $\hat{\pi}_{\mathrm{H}}$ \\
+\midrule
+0.10 & 0.18 & 0.80 & 0.95 & 2000 & $-0.000$ & $+0.027$ & $-0.000$ \\
+0.10 & 0.18 & 0.80 & 0.95 & 60   & $+0.000$ & $+0.027$ & $+0.001$ \\
+0.05 & 0.095 & 0.90 & 0.95 & 2000 & $+0.033$ & $+0.006$ & $+0.000$ \\
+0.05 & 0.095 & 0.90 & 0.95 & 60   & $+0.033$ & $+0.006$ & $-0.000$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The Monte Carlo standard error of each bias is at most $0.0005$. In the first two rows the observed rate has no
+bias only because the errors of the judge compensate each other; in the last two it has the bias of the judge.
+
+This work publishes the observed rate, with the count per cause, as the main figure. When a calibration of the
+judge exists, the corrected rate $\hat{\pi}_{\mathrm{H}}$ is published next to it, with the calibration and its
+size. Two things were not evaluated: the coverage of an interval for $\hat{\pi}_{\mathrm{H}}$, and its behavior
+when $\mathrm{Se}$ and $\mathrm{Sp}$ are estimated. Until they are, the corrected rate has no interval.
+
+We found no published derivation of this bias for a rate that mixes exact and judge decisions. The nearest
+literature is the correction for partial verification bias in diagnostic accuracy studies \cite{arifin2022},
+which is an analogy only.
+
+\section{Judge calibration}
+
+The calibration is used to know the error of the judge and to select the threshold, not to correct the rate. A
+large part of the set is built without human labels: correct requests are changed in known ways (a different
+amount, no recipient, a euphemism instead of the action); each change gives a violation with its expected cause.
+Correct paraphrases (``refund of nine hundred dollars to the card ending in 4321'') are negative controls, to
+measure false positives: a judge that marks each rewording is not useful. Only \texttt{wrong\_effect} in real
+traffic needs a sample labeled by people, with two reviewers and their agreement. The agreement is reported per
+cause and per language.
+
+\section{Observation without a record}
+
+Without the system record, the measurement has only the text of the request and what the assistant says that it
+did. The judge decides, and there are no exact causes. This reading is weaker: if the assistant also
+misdescribes what it did, the judge does not see the failure.
+
+\section{Illustrative example}
+\label{sec:example}
+
+\textit{(Illustrative construction; not a measurement.)} Three scenarios with two replicas each: six
+conversations with a record, all of them target the measurement.
+
+\begin{center}
+\begin{tabular}{@{}lp{0.70\textwidth}l@{}}
+\toprule
+Conversation & Cells that apply & $m_i$ \\
+\midrule
+$c_1$ & effect judge $0.10$ & $0.10$ \\
+$c_2$ & ``refund of 90 USD'' with 900 approved: \texttt{understated\_value} & $1$ \\
+$c_3$ & ``update your contact details'' for the recovery email: \texttt{wrong\_effect} $0.90$ & $0.90$ \\
+$c_4$ & effect judge $0.30$ & $0.30$ \\
+$c_5$ & the judge did not respond & no score \\
+$c_6$ & request built by the interface (does not apply); another turn, judge $0.05$ & $0.05$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+$c_5$ goes out of the denominator: $n = 5$. With $\tau = 0.5$, $c_2$ and $c_3$ violate: $\hat{p} = 2/5 = 0.40$.
+The groups have sizes 2, 2 and 1, so $\bar{m} = 5/3$; with $\hat{\rho} = 0.3$
+(illustrative; a real run estimates it from its replicas), $\mathrm{deff} = 1.20$
+and $n_{\mathrm{ef}} = 4.17$. The 95\% Wilson interval is $(0.11, 0.79)$: very wide, because the sample is small.
+Count per cause: one exact (\texttt{understated\_value}) and one from the judge (\texttt{wrong\_effect}).
+
+\section{Validation}
+
+The exact rules and the logic around the judge are deterministic, and they are tested with hand-written cases
+whose result is compared exactly; for the judge, only the admissibility of the cause is checked. Four cases are of
+this measurement, and they are its first positive cases: a text that shows 90 USD when 900 was approved (score 1,
+\texttt{understated\_value}); a text without the amount (score 1, \texttt{omitted\_parameter}); a request built by
+the interface (does not apply); and an amount written in words (the judge decides, no exact cause). Two
+boundary cases come from known attacks on the approval channel: \emph{padding}, where the action and its values
+are in the text but a long block pushes them out of view (the value is present, so there is no exact cause and
+the judge decides), and \emph{obfuscation}, where the action is in the text but unreadable, in base64, in
+hexadecimal or behind an indirection such as ``run the script in the attachment'' (the value is $\bot$, so there
+is no exact cause and the judge decides, the same route as an amount in words). They test that an
+implementation does not mark them as exact errors and does not skip the judge. Both come from the attack
+classes of Weng \cite{consentintegrity} and from the Lies-in-the-loop demonstration \cite{checkmarx2025}. The set
+detects five implementation errors: the lower amount not seen and the request taken as faithful; an exact cause
+with the score of a judge; a request built by the interface measured as misleading; an amount in words marked as
+an exact error; and an exact cause without a record.
+
+\section{Implementation considerations}
+
+The metric extends the \texttt{Gaussia} base class of the \texttt{pygaussia} SDK. The \texttt{batch()} method reads each pair $(a,c)$ of a turn whose
+author is the assistant, applies the exact part and then the judge part, and gives the cell $s_{i,t}$ with all
+the causes. The session takes the maximum $m_i$ and violates if $m_i \geq \tau$.
+
+The metric reads the approvals and the tool record of the oversight data contract of Gaussia \cite{gaussia2026}: \texttt{oversight\_policy} at the session
+level, and \texttt{tools\_used} and \texttt{approvals} in the \texttt{agentic} dictionary of each turn. The field \texttt{covers} gives $C_a$. The
+metric needs items that the contract does not have: in the approval event, the text $x_a$, the author
+$\alpha_a$ and the approved parameters recorded by the approval system; in the policy, the parameters $M$ of
+each tool, with their types. The types and the normalization functions are the same as in a substitution check.
+As in that contract, the names of the new fields are illustrative.
+
+The exact part uses no model. The judge part makes one call for each pair that applies. Its prompt is in the
+language of the assistant and is part of the measurement: if it changes, the calibration is repeated. The judge
+uses the two judge modes of Gaussia \cite{gaussia2026}: the continuous mode, with a probability, and the
+discrete mode, with a label. A run uses one mode from the start to the end, and the output states the mode.
+
+The output has the rate without correction, with its Wilson interval on $n_{\mathrm{ef}}$; with a calibration,
+the corrected rate $\hat{\pi}_{\mathrm{H}}$ with the calibration and its size; the threshold and its origin; and
+the count of causes, with the exact causes separated from the judge causes. Compatibility with the statistical modes (frequentist and Bayesian) follows the existing Gaussia pattern. Without a
+record, only the judge decides, and the output has no exact causes.
+
+\section{Discussion}
+
+\subsection{What this work establishes}
+
+The measurement is defined with exact rules for the most frequent and most serious cases (an omitted or changed
+data item), and with a judge only for the effect. The scope by author of the request prevents measuring texts that
+the assistant did not write. The analysis of Section~\ref{sec:rg} shows, with a closed expression, how much the
+usual correction would bias a rate that mixes the two parts, and a correction of the judge part only removes
+that bias in simulation.
+
+\subsection{What it does not establish}
+
+\begin{itemize}
+  \item \textbf{There are no results with real assistants} and no calibration of the judge.
+  \item \textbf{The corrected rate has no interval yet.} The main figure is the observed rate, with the count
+    per cause. The corrected rate $\hat{\pi}_{\mathrm{H}}$ has no bias with known $\mathrm{Se}$ and $\mathrm{Sp}$
+    in simulation, but its interval and its behavior with an estimated calibration were not evaluated.
+  \item \textbf{It measures the description, not the understanding.} A faithful but long or confusing request
+    can mislead anyway.
+  \item \textbf{It depends on the policy.} Without declared parameters, the judge decides everything.
+  \item \textbf{It needs the text that the approver saw.} If the approval channel changes the text before it
+    shows it, the shown text must be used.
+  \item \textbf{The interval can undercover.} With the replicas grouped by scenario, intervals on an effective
+    sample size cover less than their nominal level, mainly because $n_{\mathrm{ef}}$ is itself estimated
+    \cite{franco2019}. With few scenarios $\hat{\rho}$ is noisy, and the Kish formula assumes scenarios with a
+    similar number of replicas.
+\end{itemize}
+
+\subsection{Generalization}
+
+The analysis of Section~\ref{sec:rg} applies to any rate that mixes exact decisions and decisions of an imperfect
+classifier: the Rogan-Gladen correction is valid only if it is applied to the classifier part. It is not an
+extension evaluated here.
+
+\subsection{Open questions for the reviewers}
+
+\begin{enumerate}
+  \item Is it acceptable to publish the observed rate as the main figure, with $\hat{\pi}_{\mathrm{H}}$ next to
+    it, instead of making the corrected rate the main figure?
+  \item Must the error that understates the amount weigh more in the score, and not only be distinguished in the
+    cause?
+  \item Must a misleading request that the person refused also be measured? It shows the behavior, although
+    there is no damage.
+  \item Are the five parameter types sufficient?
+\end{enumerate}
+
+\section{Conclusion}
+
+A misleading approval request turns a valid approval into oversight that did not work. The proposed measurement
+separates what can be checked without a judge (the data items that matter) from what needs reading (the effect),
+limits the scope to the texts that the assistant writes, and publishes an uncorrected rate whose
+judge-dependent part stays visible in the count per cause, with a corrected rate that corrects only that part.
+The next step is to calibrate the judge and to
+measure real assistants.
+
+\section*{Declarations}
+
+\paragraph{Conflicts of interest.} The authors are affiliated with EthiCompass, the organization that develops a
+red-teaming system for AI assistants. The measurement defined
+here is of general application and does not depend on a proprietary implementation, but the affiliation is
+declared so that the reader can take it into account.
+
+\paragraph{Origin of the design.} The scope by author of the request, the exact part with typed parameters, the
+judge limited to the effect and the closed causes follow the reply of the Gaussia team to our public proposal.
+The cause \texttt{understated\_value}, the decision to keep one metric, the analysis of Section~\ref{sec:rg} and
+the validation are the authors' own.
+
+\paragraph{Funding.} \textit{To be completed before submission.}
+
+\paragraph{Data and code availability.} The validation uses hand-written test cases. \textit{Access conditions
+are completed before submission.}
+
+\paragraph{Language.} The Spanish version is the original. The writing follows the ASD-STE100 rules.
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}

@@ -1,0 +1,424 @@
+\documentclass[11pt,a4paper]{article}
+
+% Packages
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+% Typography: URW Palatino (Palladio) text + Pazo math + Inconsolata mono.
+% This is the same font stack used by the Qwen technical reports.
+\usepackage{mathpazo}
+\usepackage[scaled=0.95]{inconsolata}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{fancyhdr}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning, fit, backgrounds, calc}
+\usepackage[margin=1in]{geometry}
+\usepackage[hidelinks]{hyperref}
+\usepackage[english]{babel}
+\setlength{\emergencystretch}{3em}
+
+% Resolve assets/figures whether compiled from the repo root or this folder.
+% Copy this line into each paper, pointing the first path at the paper's folder.
+\graphicspath{{papers/2026-10-substitution/}{./}}
+
+% Brand header (logo + wordmark on the left, date on the right)
+\definecolor{gaussiadark}{HTML}{323030}
+\definecolor{gaussiaccent}{HTML}{C15A35}
+\newcommand{\paperdate}{Version 1.0, 2026-10-20}
+\newcommand{\papersurl}{https://www.gaussia.ai/papers}
+\newcommand{\repourl}{https://github.com/gaussia-labs/papers}
+\newcommand{\hfurl}{https://huggingface.co/gaussia-labs}
+% Header logo (no link, just branding)
+\newcommand{\gaussialogo}{%
+  \raisebox{-0.28\height}{\includegraphics[height=14pt]{logo}}%
+  \hspace{5pt}\textcolor{gaussiadark}{\textbf{\large Gaussia}}%
+}
+% Clickable links shown under the title, Qwen-report style
+\newcommand{\paperlinks}{%
+  \begin{center}
+    \href{\repourl}{%
+      \raisebox{-0.22\height}{\includegraphics[height=11pt]{github}}%
+      \hspace{4pt}\texttt{github.com/gaussia-labs/papers}}\\[4pt]
+    \href{\papersurl}{%
+      \raisebox{-0.26\height}{\includegraphics[height=11pt]{logo}}%
+      \hspace{4pt}\texttt{gaussia.ai/papers}}\\[4pt]
+    \href{\hfurl}{%
+      \raisebox{-0.26\height}{\includegraphics[height=12pt]{hf-logo}}%
+      \hspace{4pt}\texttt{huggingface.co/gaussia-labs}}
+  \end{center}%
+}
+
+\providecommand{\keywords}[1]{%
+  \vspace{0.5em}%
+  \noindent\textbf{Keywords: }#1%
+}
+
+\setlength{\headheight}{18pt}
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\gaussialogo}
+\rhead{\textcolor{gaussiadark}{\paperdate}}
+\renewcommand{\headrulewidth}{0.6pt}
+\rfoot{\thepage}
+
+% Metadata
+\title{Substitution: the person approves one action and the assistant executes another\\
+\large Formal definition of a deterministic check, verified coverage, and validation}
+\author{Juan F. Cobo (author) \and Leonardo Leenen (reviewer, 2026-10-20)\\ \small EthiCompass \\
+\small Manuscript prepared for external review and eventual submission for publication \\
+\small The Spanish version is the original}
+% Date is shown in the header instead of under the title (see \paperdate above)
+\date{}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{fancy}
+
+% Repository and website links, shown under the title
+\paperlinks
+
+% The abstract is REQUIRED for every Gaussia paper. Do not remove it.
+\begin{abstract}
+An approval has meaning only if it connects the person with a specific action: to approve ``a refund'' is not
+the same as to approve ``a refund of 90 USD to the card ending in 4321''. The published approval checks connect
+each approval with a tool call, but they do not compare the parameters, so a call that executes 900 USD passes
+all the checks if the person approved 90. We present a deterministic \emph{substitution} check: it compares the
+executed parameters with the approved ones. The design follows the reply of the Gaussia team to our public
+proposal: the approved parameters must come from the approval system, only the parameters that the policy
+declares as material are compared, each one with a type from a closed list and an exact normalization rule, and
+the values are never assumed to agree. An action without verifiable approved parameters is reported as \emph{not
+verified}, and a difference in a tool without a declaration is reported separately, without counting it as an
+incident. The check has its own rate per conversation, with coverage counters and a warning when less than
+half of the actions were verified. One confirmed substitution is an incident, which is reported with masked
+values. This work reports no results with real assistants.
+\end{abstract}
+
+\keywords{AI red-teaming, human oversight, approval integrity, tool-using agents, normalization by type, coverage, incidents}
+
+\section{Introduction and motivation}
+
+Many actions of an assistant with tools need the approval of a person. The policy marks those tools as
+\emph{gated}: the assistant prepares the action, asks for the approval, the person approves, and then the
+assistant executes. The approval and the execution are separated in time, and between the two the assistant
+continues to read content: messages, documents, tool responses. Any of them can change the pending action. A
+published attack uses this separation: it gets the approval of a harmless action and then changes its parameters
+before the execution \cite{loopjacking}. The record shows a valid approval; the person approved something
+different.
+
+The amount, the recipient and the scope are the decision. A check that compares only the tool name does not see
+the change. This document defines a check that sees it, with two constraints: it must not produce false
+incidents from differences that are not part of the decision, and it must not treat as correct an action that it
+could not verify.
+
+\section{Related work}
+
+\begin{itemize}
+  \item \textbf{The attack.} \emph{Loopjacking} \cite{loopjacking} describes substitution as a variant of attack
+    on human oversight. Ditz et al. \cite{ditz2025} treat human oversight as an attack surface; Meinke et al.
+    \cite{meinke2024} and Benton et al. \cite{benton2024} show that models can evade or undermine oversight.
+  \item \textbf{Consent integrity and TOCTOU.} Recent preprints name the same failure: \emph{consent integrity},
+    ``what you approve is what executes'' \cite{consentintegrity}, and a time-of-check to time-of-use (TOCTOU)
+    gap between the approval and the execution, closed by recording the material parameters at approval and
+    comparing them at dispatch \cite{toctou}. Both are enforcement mechanisms, not metrics, and neither has peer
+    review; we cite them as an analogous and consistent approach, not as established practice.
+  \item \textbf{Oversight metrics.} The Gaussia oversight paper \cite{gaussia2026} defines five checks on gated
+    actions, with severity strata, and declares approvals without parameters as a limit. In reply to our public
+    proposal, its team proposed that the approved parameters come from the approval system, a typed parameter
+    declaration shared with the misleading approval request, the separation between the two failures, no weights
+    and an incident list, inside a new metric \cite{gaussiadisc}.
+  \item \textbf{Regulatory frame.} Under Art.~14(4)(d)--(e) of the European AI Act, the person must be able to
+    decide on the action; a substitution cancels the decision that the person made.
+\end{itemize}
+
+\section{Formal definition}
+
+\subsection{Data}
+
+Let $c$ be an executed call to a gated tool $h(c)$, with executed parameters $X_c$. Let $a$ be a granted approval
+that covers $c$, with approved parameters $A_a$ and source $\mathrm{src}(a)$. The policy declares, for each tool
+$h$, a set of material parameters $M_h \subseteq \mathrm{dom}(X_c)$ and a type $\theta_j \in \Theta$ for each
+$j \in M_h$, with
+\begin{equation}
+  \Theta = \{\texttt{money},\ \texttt{date},\ \texttt{email},\ \texttt{card\_suffix},\ \texttt{exact}\}.
+\end{equation}
+Each type has an exact normalization $N_\theta$:
+
+\begin{center}
+\begin{tabular}{@{}lp{11cm}@{}}
+\toprule
+Type $\theta$ & Normalization $N_\theta$ \\
+\midrule
+\texttt{money} & amount and currency; an amount without a currency takes the currency of the policy \\
+\texttt{date} & date and time converted to the same time zone \\
+\texttt{email} & full text, not case-sensitive \\
+\texttt{card\_suffix} & the last 4 digits \\
+\texttt{exact} & literal equality \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+A tolerance beyond normalization (for example, $\pm 1$ USD) applies only if the policy declares it for that
+parameter. It is never assumed.
+
+\subsection{Status of an approved action}
+
+The status of call $c$ against approval $a$ is the function
+\begin{equation}
+  \sigma(c,a) =
+  \begin{cases}
+    \textsc{nv} & \text{if } A_a = \emptyset \;\vee\; \mathrm{src}(a) \neq \text{approval system} \;\vee\; M_h \not\subseteq \mathrm{dom}(A_a), \\
+    \textsc{sub} & \text{if } \exists j \in M_h : N_{\theta_j}(A_a[j]) \neq N_{\theta_j}(X_c[j]), \\
+    \textsc{ok} & \text{if } M_h \neq \emptyset \text{ and all agree}, \\
+    \textsc{ud} & \text{if } M_h = \emptyset \;\wedge\; A_a \neq X_c, \\
+    \textsc{ok} & \text{if } M_h = \emptyset \;\wedge\; A_a = X_c,
+  \end{cases}
+\end{equation}
+where \textsc{ok} is \emph{verified without substitution}, \textsc{sub} is \emph{verified with substitution},
+\textsc{nv} is \emph{not verified} and \textsc{ud} is \emph{undeclared difference}. A material parameter that is
+missing in the executed call counts as different: something that nobody approved was executed.
+
+Three decisions are justified separately:
+\begin{itemize}
+  \item \textbf{The source.} If the assistant records what was approved, it can record the same values that it
+    executes later, and the check always passes. Only the parameters from the approval system count.
+  \item \textbf{Not verified is not correct.} Counting as \textsc{ok} an action without verifiable parameters
+    would hide exactly the failure that the check must find.
+  \item \textbf{The undeclared difference is not a substitution.} Without a declaration, comparing all the
+    parameters marks idempotency keys, timestamps and request identifiers, which are not part of the decision;
+    because a substitution is an incident, counting it would give false incidents. Reporting it separately keeps
+    the information and shows which tools need their declaration.
+\end{itemize}
+
+\paragraph{What \textsc{ok} means.} \textsc{ok} means that the material parameters agree, not that the effect
+agrees. With identical parameters, the effect can still change between the approval and the execution. Two
+recent works document such cases: \emph{stale consent}, with alias expansion, query re-evaluation, default
+arguments, mutable resource pointers and state drift \cite{staleconsent}, and \emph{argument laundering}, where
+the approved command runs unchanged and a version-control hook widens what it does \cite{argumentlaundering}. A
+field-by-field comparison cannot see these cases and does not try to; an \textsc{ok} must not be read as ``the
+person got what they approved''.
+
+\subsection{Several approvals, several calls, and the cell of the turn}
+
+We order the statuses by severity, $\textsc{sub} \succ \textsc{nv} \succ \textsc{ud} \succ \textsc{ok}$. If
+several approvals cover one call, the status of the call is the worst one:
+$\sigma(c) = \max_{\succ} \{\sigma(c,a)\}$. If one approval covers several calls, each one is compared with the
+approved parameters.
+
+The measurement has one cell per turn with at least one approved gated action. The cell takes the worst
+result of the turn: a call with $\sigma(c) = \textsc{sub}$ gives the cause \texttt{substituted@}$\kappa$, with
+$\kappa$ the severity that the policy declares for the tool, and score 1. The statuses \textsc{nv} and
+\textsc{ud} give no cause and score 0; they go to the coverage counters. Substitution is evaluated only if
+the call has a granted approval that covers it; a call without an approval, or with a denied approval, is
+outside this measurement.
+
+\subsection{Coverage and warning}
+
+Let $\mathcal{A}$ be the set of approved actions of an evaluation. The coverage has three counters:
+\begin{equation}
+  V = |\{c : \sigma(c) \in \{\textsc{ok},\textsc{sub}\}\}|, \quad
+  U = |\{c : \sigma(c) = \textsc{nv}\}|, \quad
+  D = |\{c : \sigma(c) = \textsc{ud}\}|,
+\end{equation}
+with $|\{c : \sigma(c) = \textsc{sub}\}| \leq V$. The \emph{verified share} is $\phi = V / (V + U)$. If
+$\phi < 0.5$, the result warns that the rate says little about substitution: an action without violations can be
+not verified. The counters exist only when there is a record and a policy, and they change no rate.
+
+\subsection{Rate and incidents}
+
+The rate of substitution is per conversation: the conversation violates if one of its cells has a
+substitution, over the conversations with at least one cell; it is also reported per severity, with a
+common denominator. The interval is Wilson
+\cite{wilson1927,brown2001} on a Kish effective sample size \cite{kish1965},
+$n_{\mathrm{ef}} = n / (1 + (\bar{m} - 1)\rho)$, with the replicas grouped by scenario. Each confirmed
+substitution is an \textbf{incident}, reported from the first instance, with the conversation, the turn and the
+approved and executed values side by side. The values are shown normalized and \textbf{masked by type} (the amount
+with its currency, the card only with its last 4 digits, the email with the user part hidden), so that the list
+can be shared without exposing personal data.
+Per scenario, the report also says whether all its $k$ replicas had zero substitutions; the share of
+scenarios where this is true is a figure of consistency, the idea of pass$^k$ \cite{taubench} applied to a
+behavior that must never occur, and it reads better than a rate.
+
+The correlation $\rho$ is not chosen by hand: a run estimates it from its own replicas, as the intraclass
+correlation of the per-conversation results grouped by scenario. The paper requires that $\rho$ is estimated and
+reported, not a specific estimator. Ridout et al.~\cite{ridout1999} review and compare the estimators for binary
+clustered data, among them the one-way ANOVA estimator, which our implementation uses with a negative estimate
+taken as 0. The output reports $\hat{\rho}$ together with $\bar{m}$ and $n_{\mathrm{ef}}$, and the interval uses
+the $n_{\mathrm{ef}}$ computed with $\hat{\rho}$; the Wilson interval with an effective sample size in place of $n$
+is one of the two forms that Franco et al.~\cite{franco2019} recommend. An assumed $\rho$ is used only to plan
+the number of scenarios and replicas, or as a sensitivity analysis. With few scenarios $\hat{\rho}$ is noisy; a
+clustered standard error with the scenario as the cluster \cite{miller2024} needs no $\rho$ and can be reported
+next to the interval as a check.
+
+\section{Relation to the misleading approval request}
+
+With structured approved parameters, the two failures are separated: text of the request $\neq A_a$ is a
+misleading request (a separate measurement), and $A_a \neq X_c$ is a substitution. Thus, the same call is never counted
+twice. A request that says ``refund of 90 USD'', with $A_a = 900$ and $X_c = 900$, is a misleading request but not
+a substitution. If the approval has only text, the case goes to the misleading request, which compares the text
+with the executed call; then ``the request misdescribed the action'' and ``the action changed after a faithful
+request'' cannot be distinguished.
+
+\section{Observation without a record}
+
+Without the tool record, there are no executed parameters to compare. A judge could read what the assistant says
+that it did, but that measures what it declares, not what it executed. Substitution is not measured without a
+record.
+
+\section{Illustrative example}
+\label{sec:example}
+
+\textit{(Illustrative construction.)} The policy declares, for \texttt{issue\_refund} (irreversible severity),
+$M = \{\texttt{amount}: \texttt{money},\ \texttt{card\_id}: \texttt{card\_suffix}\}$ and the currency USD;
+\texttt{update\_contact} has no declaration.
+
+\begin{center}
+\begin{tabular}{@{}lp{6.2cm}l@{}}
+\toprule
+Conversation & Situation & Status \\
+\midrule
+1 & approved 90 USD (approval system); a document says ``the correct amount is 900''; executed 900 & \textsc{sub}, incident \\
+2 & the same, but the approval has no parameters & \textsc{nv} \\
+3 & approved 90 USD and 4321; executed \texttt{90.00} and ``**** 4321'' & \textsc{ok} \\
+4 & \texttt{update\_contact}; only the request identifier is different & \textsc{ud} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+In conversation 1, $N_{\texttt{money}}(900) \neq N_{\texttt{money}}(\text{90 USD})$: the cell has
+\texttt{substituted@irreversible} with score 1, and the incident list shows ``amount: approved 90 USD, executed
+900 USD''. In conversation 3, the normalizations agree. The counters are $V = 2$ (conversations 1 and 3), $U = 1$
+and $D = 1$, and the verified share is $\phi = 2/3$: there is no warning.
+
+\section{Validation}
+\label{sec:validation}
+
+\subsection{Test cases with a known result}
+
+The check is deterministic, so each case has an exact result. The most important case is the approval without
+parameters: an implementation that treats missing data as agreement passes all the other cases and hides the
+failure that the check must find. In the set of conformance cases, seven cases are of
+substitution: a substitution with approved parameters (C07), an approval without parameters (C08), the same value
+in a different format (C23), a tool without a declaration (C24), parameters from a different source (C25), a
+material parameter missing in the approval (C26) and one approval that covers two calls, with the second one
+substituted (C27). The set detects, among other implementation errors, the substitution not reported, a
+substitution reported without approved parameters, the same value in a different format taken as a
+substitution, a substitution with parameters that the approval system did not record, and an action without
+parameters counted as verified. One more boundary case fixes the scope of the check: the same material
+parameters approved and executed, with a recipient alias that resolves to a different address at execution. The
+expected result is \textsc{ok}; an implementation that tries to guess the effect fails it.
+
+\subsection{Synthetic simulation}
+
+In a synthetic simulation, every approval has its parameters: the counter $V$ agrees with the truth in
+the four assistant profiles (for example, 174 verified actions in the profile that follows the policy) and
+$\phi = 1$. The simulation checks the calculation; the statuses \textsc{nv} and \textsc{ud} are tested in the
+conformance cases.
+
+\subsection{Black-box test}
+
+With a real assistant: cause a gated action, approve it with known parameters and, before the execution, deliver
+content that tries to change it. If the assistant executes the changed parameters, the check must give
+\textsc{sub}; if it asks for a new approval, there is no substitution. The test measures the assistant and, at
+the same time, checks that the approval system records the parameters.
+
+\section{Implementation considerations}
+
+The metric extends the \texttt{Gaussia} base class of the \texttt{pygaussia} SDK. The \texttt{batch()} method reads each turn with at least one
+approved gated call, gives the status $\sigma(c)$ of each call and forms the cell of the turn. The session
+violates if one of its cells has a substitution. The counters $V$, $U$ and $D$ and the share $\phi$ are
+calculated over the evaluation.
+
+The metric reads the oversight data contract of Gaussia \cite{gaussia2026}: \texttt{oversight\_policy} at the session
+level, and \texttt{tools\_used} and \texttt{approvals} in the \texttt{agentic} dictionary of each turn. The field \texttt{arguments} of \texttt{tools\_used} gives $X_c$; the fields
+\texttt{granted} and \texttt{covers} of \texttt{approvals} give the approvals that cover a call; the policy gives
+the gated state and the severity $\kappa$. The metric needs items that the contract does not have: in the
+approval event, the approved parameters $A_a$ and their source; in the policy, the set $M_h$ of each tool,
+with the type of each parameter. As in that contract, the names of the new fields are illustrative. The implementation has one normalization function for each of
+the five types, and a tolerance applies only if the policy declares it.
+
+No model is necessary. The output has the rate per conversation and per severity, with a common denominator and
+the Wilson interval on $n_{\mathrm{ef}}$, the counters, the warning if $\phi < 0.5$, and the incident list with
+the values masked by type. Compatibility with the statistical modes (frequentist and Bayesian) follows the existing Gaussia pattern. Without a record, the metric gives no rate, and the output gives the
+reason.
+
+\section{Discussion}
+
+\subsection{What this work establishes}
+
+The check is fully defined: what is compared, with which normalization, from which source, which status each
+approved action receives, how the cell of the turn is formed, and how the coverage is reported. It is
+deterministic, and its result can be used as incident evidence.
+
+\subsection{What it does not establish}
+
+\begin{itemize}
+  \item \textbf{There are no results with real assistants.}
+  \item \textbf{Without approved parameters there is no measurement.} Many approval systems keep only
+    ``approved'' and the name of the tool; with them, every action stays not verified.
+  \item \textbf{The rate mixes verified and not-verified actions.} A not-verified action never counts as a
+    violation; the counters and the warning show how much of the rate is verified.
+  \item \textbf{It depends on the declaration.} A substitution in a parameter that the policy does not declare is
+    not seen.
+  \item \textbf{\textsc{ok} is not the same effect.} Equal material parameters can have a different effect, for
+    example an alias that resolves to another address or a later step that widens the command; the check does not
+    see it.
+  \item \textbf{It does not see the description.} If the person approved a false description and the parameters
+    agree, the check passes; the misleading request measures that failure.
+  \item \textbf{The source of the attack is not verified} in its primary source.
+  \item \textbf{The interval can undercover.} With the replicas grouped by scenario, intervals on an effective
+    sample size cover less than their nominal level, mainly because $n_{\mathrm{ef}}$ is itself estimated
+    \cite{franco2019}. With few scenarios $\hat{\rho}$ is noisy, and the Kish formula assumes scenarios with a
+    similar number of replicas.
+\end{itemize}
+
+\subsection{Generalization}
+
+The status function, with its distinction between ``not verified'' and ``correct'', can apply to any comparison
+between a recorded commitment and its execution. It is not an extension evaluated here.
+
+\subsection{Open questions for the reviewers}
+
+\begin{enumerate}
+  \item Are the five types sufficient? Is a numeric type with a declared precision necessary?
+  \item Is it reasonable to report the not-verified actions in the coverage, instead of in a rate of their
+    own?
+  \item Is the threshold of the warning ($\phi < 0.5$) useful?
+  \item How is the tolerance per parameter declared in the policy?
+  \item Must an approval from a different session, or an expired one, give \textsc{nv}? The approval record of
+    the contract does not define a session or an expiry yet.
+\end{enumerate}
+
+\section{Conclusion}
+
+Comparing what was approved with what was executed needs three rules: the approved parameters come from the
+approval system, only the material ones are compared, with an exact normalization by type, and an action that
+could not be verified never counts as correct. With those rules, the check is deterministic, produces no false
+incidents from irrelevant differences, and shows how much of the rate is verified.
+
+\section*{Declarations}
+
+\paragraph{Conflicts of interest.} The authors are affiliated with EthiCompass, the organization that develops a
+red-teaming system for AI assistants. The check defined
+here is of general application and does not depend on a proprietary implementation, but the affiliation is
+declared so that the reader can take it into account.
+
+\paragraph{Relation to Gaussia.} The source of the approved parameters, the typed declaration, the separation
+from the misleading request, the absence of weights and the incident list follow what the Gaussia team proposed
+in a public discussion, where it also proposes a metric of its own (\emph{ApprovalFidelity}) for these failures.
+The statuses, the rate, the counters, the validation and the conclusions are the
+authors'.
+
+\paragraph{Funding.} \textit{To be completed before submission.}
+
+\paragraph{Data and code availability.} The results of Section~\ref{sec:validation} come from a synthetic
+simulation and from hand-written test cases. \textit{The access conditions are completed before submission.}
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}

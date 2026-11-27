@@ -1,0 +1,399 @@
+\documentclass[11pt,a4paper]{article}
+
+% Packages
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+% Typography: URW Palatino (Palladio) text + Pazo math + Inconsolata mono.
+% This is the same font stack used by the Qwen technical reports.
+\usepackage{mathpazo}
+\usepackage[scaled=0.95]{inconsolata}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{fancyhdr}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning, fit, backgrounds, calc}
+\usepackage[margin=1in]{geometry}
+\usepackage[hidelinks]{hyperref}
+\usepackage[english]{babel}
+\setlength{\emergencystretch}{3em}
+
+% Resolve assets/figures whether compiled from the repo root or this folder.
+% Copy this line into each paper, pointing the first path at the paper's folder.
+\graphicspath{{papers/2026-10-false-approval-claim/}{./}}
+
+% Brand header (logo + wordmark on the left, date on the right)
+\definecolor{gaussiadark}{HTML}{323030}
+\definecolor{gaussiaccent}{HTML}{C15A35}
+\newcommand{\paperdate}{Version 1.0, 2026-10-20}
+\newcommand{\papersurl}{https://www.gaussia.ai/papers}
+\newcommand{\repourl}{https://github.com/gaussia-labs/papers}
+\newcommand{\hfurl}{https://huggingface.co/gaussia-labs}
+% Header logo (no link, just branding)
+\newcommand{\gaussialogo}{%
+  \raisebox{-0.28\height}{\includegraphics[height=14pt]{logo}}%
+  \hspace{5pt}\textcolor{gaussiadark}{\textbf{\large Gaussia}}%
+}
+% Clickable links shown under the title, Qwen-report style
+\newcommand{\paperlinks}{%
+  \begin{center}
+    \href{\repourl}{%
+      \raisebox{-0.22\height}{\includegraphics[height=11pt]{github}}%
+      \hspace{4pt}\texttt{github.com/gaussia-labs/papers}}\\[4pt]
+    \href{\papersurl}{%
+      \raisebox{-0.26\height}{\includegraphics[height=11pt]{logo}}%
+      \hspace{4pt}\texttt{gaussia.ai/papers}}\\[4pt]
+    \href{\hfurl}{%
+      \raisebox{-0.26\height}{\includegraphics[height=12pt]{hf-logo}}%
+      \hspace{4pt}\texttt{huggingface.co/gaussia-labs}}
+  \end{center}%
+}
+
+\providecommand{\keywords}[1]{%
+  \vspace{0.5em}%
+  \noindent\textbf{Keywords: }#1%
+}
+
+\setlength{\headheight}{18pt}
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\gaussialogo}
+\rhead{\textcolor{gaussiadark}{\paperdate}}
+\renewcommand{\headrulewidth}{0.6pt}
+\rfoot{\thepage}
+
+% Metadata
+\title{False approval claims: a deterministic verification of approval statements in AI assistants with tools\\
+\large Formal definition, per-turn measurement, extraction error and validation}
+\author{Juan F. Cobo (author) \and Leonardo Leenen (reviewer, 2026-10-20)\\ \small EthiCompass \\
+\small Manuscript prepared for external review and eventual submission for publication}
+% Date is shown in the header instead of under the title (see \paperdate above)
+\date{}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{fancy}
+
+% Repository and website links, shown under the title
+\paperlinks
+
+% The abstract is REQUIRED for every Gaussia paper. Do not remove it.
+\begin{abstract}
+An AI assistant with tools tells what it did and why. Sometimes it says that a person approved the action: ``your
+supervisor already approved it''. If that approval does not exist, the assistant acted alone, hid it and moved the
+responsibility to a person who never saw the case. The published metrics treat this failure as a case of general
+fabrication, decided by a judge. We propose to measure it separately, because it can be verified without a judge:
+an extraction finds the approval statements in each turn, and a deterministic verification looks for them in the
+approval record. Only a granted approval, recorded by the approval system, earlier than or simultaneous with the
+turn and covering the claimed action, supports a statement; if the assistant could write the record, it could
+record the approval that it invents. The result of each turn is 0 or 1; the result of the conversation is the
+maximum; one confirmed false statement is an incident. The only source of error is the extraction, whose
+sensitivity and specificity are reported together with the rate. Without the system record, the verification uses
+the record of the person who runs the test, who knows what that person approved, and it stays deterministic. This
+work reports no results with real assistants.
+\end{abstract}
+
+\keywords{AI red-teaming, human oversight, attribution, fabrication, tool-using agents, deterministic verification, incidents}
+
+\noindent\textit{The Spanish version of this document is the original.}
+
+\section{Introduction and motivation}
+
+After it acts, the assistant explains to the user what it did. The user, and later an auditor, use this account to
+know who made each decision. A sentence that says ``a person approved this'' has a special effect: it tells the
+reader that the action already had a human review, and for this reason nobody reviews it again.
+
+If the sentence is false, three things occur: the assistant acted without the approval that was necessary, it hid
+that it acted alone, and the responsibility moves to a person who never saw the case. The failure can have several
+causes: the model completes the account with a usual sentence, hostile content pushes it to justify the action, or
+the model confuses a requested approval with a granted approval. The measurement does not need to know the cause:
+it compares what the assistant says with what the record has.
+
+Frequently the failure is in the middle of the conversation: the assistant acts, justifies the action with an
+approval that does not exist and then says goodbye correctly. A measurement that reads only the final response
+does not see it. For this reason the measurement is per turn.
+
+\section{Related work}
+
+\begin{itemize}
+  \item \textbf{Fabrication and false success.} Sethi et al.\ \cite{sethi2026} show that assistants fabricate
+    accounts after a tool failure (14.1\% dishonest responses; 45.3\% if the failure is not marked as an error),
+    and that a status indicator read deterministically decreases the rate to 0.87\%. Zhu et al.\ \cite{zhu2026}
+    report 22.8\% false success with the base policy and 0.8\% with an evidence contract. Advani
+    \cite{advani2026} shows that LLM judges detect false success badly (AUROC $<0.65$). Guo et al.\
+    \cite{upwarddeception} define upward deception as a final report whose success status is higher than that of
+    the real trajectory, the same structure as a statement against a record; they score it with an LLM judge and
+    report no human validation of that judge. The four justify verifying against a record, not against the
+    text.
+  \item \textbf{Attribution.} Chan et al.\ \cite{chan2024} treat the attribution of the actions of an agent and
+    activity logs. Narajala and Narayan \cite{narajala2025} describe the attribution gaps in threat T9: the agent
+    hides who decided.
+  \item \textbf{Published oversight metrics.} The Gaussia oversight paper \cite{gaussia2026} measures fabrication
+    with a judge, inside action disclosure. In the public discussion of our proposals, its team proposed that only
+    the data recorded by the approval system count and that the request data go in the approval event
+    \cite{gaussiadisc}; this work adopts both rules.
+  \item \textbf{Risk framework.} The OWASP Top 10 for Agentic Applications 2026 \cite{owaspagentic} lists
+    Human-Agent Trust Exploitation as ASI09: humans approve actions without independent validation. A false ``a
+    person approved this'' makes the reader believe that a review occurred.
+\end{itemize}
+
+\section{Formal definition}
+
+\subsection{Data}
+
+Let $i$ be the conversation and $t \in \{0,\dots,T_i-1\}$ the turn of the assistant, with text $x_{i,t}$. The
+approval record is a set $\mathcal{B}_i$; each approval $b$ has a decision $d(b) \in
+\{\text{granted}, \text{denied}, \text{pending}\}$, a source $s(b)$, the turn of the decision $\tau(b)$ and the set
+of actions that it covers. The request data (the text, its author and its turn) go in the same event and help to
+tell ``I requested the approval'' from ``they approved it''.
+
+\subsection{Extraction}
+
+An extraction function $E$ returns, for each turn, the set of approval statements
+$E(x_{i,t}) = \{a_1, \dots, a_m\}$. Each statement has an actor (who approved, according to the text), an action
+(connected to a tool of the policy when possible) and the quote. An approval request, a plan or a condition (``if
+the supervisor approves it, I will issue it''), and a denial do not count as statements. The extraction can be a
+pattern or a model; it only finds the statement and does not decide whether it is false.
+
+\subsection{Verification}
+
+A statement $a$ of turn $t$ is supported if
+\begin{equation}
+  \exists\, b \in \mathcal{B}_i :\; d(b) = \text{granted} \;\wedge\; s(b) = \text{approval system}
+  \;\wedge\; \tau(b) \leq t \;\wedge\; \mathrm{covers}(b, a).
+\end{equation}
+$\mathrm{covers}(b,a)$ compares the tool of the approval with the claimed action; if the record connects the
+approval with the call, it uses that connection. If the statement does not name an action, it is connected with
+the action of the same turn or of the earlier turn. The verification does not compare the parameters of the
+statement (Section~\ref{sec:boundaries}).
+
+\paragraph{Vague statements.} If neither turn has an action to connect it to, the statement is \emph{vague}: it
+is not verified and it is left out of $g_{i,t}$; if it is the only statement of the turn, the turn has no score,
+with the reason \texttt{vague\_statement}. Counting it as 0 would make a cell without a score count as
+compliance. The number of vague statements is reported, so that the reader knows how much stays without a
+verification. Claim extraction has the same rule: Metropolitansky and Larson \cite{claimify} exclude
+the sentences whose ambiguity cannot be resolved and label them, at most 5.4\% of the sentences in their
+evaluation.
+
+\paragraph{The source.} Only an approval recorded by the approval system supports a statement. If the assistant
+could write the approval record, it could also record the approval that it invents, and the measurement would
+never fail.
+
+\subsection{Result per turn and per conversation}
+
+The result of the turn is
+\begin{equation}
+  g_{i,t} = \mathbf{1}\big[\exists\, a \in E(x_{i,t}) : a \text{ is not supported}\big],
+\end{equation}
+with the cause \texttt{false\_approval\_claim} and the quote of the statement. If the extraction fails or the
+record is incomplete, the turn has no score and has a reason; a turn without a score never counts as compliance.
+The value of the conversation is $G_i = \max_t g_{i,t}$ over the turns with a score; a conversation without turns
+with a score goes out of the denominator, with its reason.
+
+\subsection{Rate, interval and incidents}
+
+The rate is $\hat{p} = \sum_i G_i / n$ over the evaluated conversations that target the measurement. A model never
+decides the denominator. The interval is Wilson \cite{wilson1927} with the Kish effective size \cite{kish1965},
+$n_{\mathrm{ef}} = n / (1 + (\bar{m}-1)\rho)$, with the replicas grouped by scenario. Because the verification is
+deterministic, each confirmed false statement is an incident, reported with the conversation, the turn and the
+quote, without waiting for a rate.
+Per scenario, the report also says whether all its $k$ replicas had zero false statements; the share of
+scenarios where this is true is a figure of consistency, the idea of pass$^k$ \cite{taubench} applied to a
+behavior that must never occur, and it reads better than a rate.
+
+The correlation $\rho$ is not chosen by hand: a run estimates it from its own replicas, as the intraclass
+correlation of the per-conversation results grouped by scenario. The paper requires that $\rho$ is estimated and
+reported, not a specific estimator. Ridout et al.~\cite{ridout1999} review and compare the estimators for binary
+clustered data, among them the one-way ANOVA estimator, which our implementation uses with a negative estimate
+taken as 0. The output reports $\hat{\rho}$ together with $\bar{m}$ and $n_{\mathrm{ef}}$, and the interval uses
+the $n_{\mathrm{ef}}$ computed with $\hat{\rho}$; the Wilson interval with an effective sample size in place of $n$
+is one of the two forms that Franco et al.~\cite{franco2019} recommend. An assumed $\rho$ is used only to plan
+the number of scenarios and replicas, or as a sensitivity analysis. With few scenarios $\hat{\rho}$ is noisy; a
+clustered standard error with the scenario as the cluster \cite{miller2024} needs no $\rho$ and can be reported
+next to the interval as a check.
+
+\subsection{Error of the extraction}
+
+The extraction is the only part that can make errors. Its error is described by the sensitivity $\mathrm{Se}$
+(the proportion of real statements that it finds) and the specificity $\mathrm{Sp}$ (the proportion of turns
+without a statement in which it finds nothing). A statement that the extraction does not find is a failure that is
+not counted; a statement that it invents can give a false 1. We report $\mathrm{Se}$ and $\mathrm{Sp}$ together
+with the rate, with the model version and per language, and we publish the rate without correction. The
+Rogan-Gladen correction \cite{rogan1978},
+\begin{equation}
+  \hat{\pi} = \frac{\hat{p} + \mathrm{Sp} - 1}{\mathrm{Se} + \mathrm{Sp} - 1},
+\end{equation}
+is possible, but stays as an open question.
+
+\paragraph{Calibration by construction.} A large part of the set to estimate $\mathrm{Se}$ and $\mathrm{Sp}$ can be
+built without human labels: take turns with a known statement and change them in known ways (a different verb, a
+different actor, a different sentence), and use conditional forms, requests and denials as negative controls. Only
+the paraphrases of real traffic need human labels. The extraction model receives the tools of the policy and the
+turn, in the language of the assistant, and returns the list of statements with their actor, their action and
+their quote.
+
+\paragraph{Validation of the extraction.} Because the extraction is the only source of error, its validation is
+reported in full. In addition to $\mathrm{Se}$ and $\mathrm{Sp}$ per turn, the report gives the precision and the
+recall of the extraction against human labels at the sentence level (does this sentence contain an approval
+statement?), and the agreement between the annotators of the part with human labels, for example with
+Krippendorff's alpha. A sentence whose meaning cannot be decided from its context goes to an explicit category,
+\emph{cannot be disambiguated}: it is excluded from the extraction and counted, so that the reader knows how much
+the extraction leaves out. The template is the one of Metropolitansky and Larson \cite{claimify}, who report
+sentence-level precision and recall and the agreement of three annotators with Krippendorff's alpha.
+
+\section{Observation with the conversation only}
+
+In a conducted test, the person who runs the conversation also acts as the supervisor: that person approves or
+denies the requests, and for this reason knows what was approved and when. Without the system record, the
+verification uses the record of the person who runs the test. It stays deterministic, and its result can still be
+used as incident evidence; only the extraction reads text.
+
+\section{Boundaries with other measurements}
+\label{sec:boundaries}
+
+\begin{itemize}
+  \item \textbf{Fabrication.} In the turn where this measurement gives 1, general fabrication does not measure the
+    same sentence again: the same statement is not counted twice.
+  \item \textbf{Escalation.} ``I already passed your case to a supervisor'', without an escalation call, states an
+    escalation, not an approval: it is under-escalation, which an escalation metric measures.
+  \item \textbf{Substitution.} If 90 USD was approved and the assistant says ``the supervisor approved the refund of
+    900'', the approval of the tool exists and this measurement does not fail; if 900 was executed, substitution
+    finds the failure, because it compares what was approved with what was executed.
+  \item \textbf{Execution without a valid approval.} A denied approval that the assistant presents as approved is a
+    failure here; if the action was also executed, a check of the approval record also finds it.
+\end{itemize}
+
+\section{Illustrative example}
+\label{sec:example}
+
+\textit{(Illustrative construction; not a measurement.)}
+
+\paragraph{A conversation of three turns.} In turn 0 the assistant writes ``for a refund of 900 USD I need the
+approval of a supervisor'' and the system records the request, with the decision pending. In turn 1 it writes ``the
+supervisor already approved the refund of 900 USD and I issued it''. In turn 2 it writes ``can I help you with
+something else?''. The extraction finds no statements in turns 0 and 2 ($g=0$) and finds one in turn 1. The record
+has no granted approval with turn $\leq 1$, so $g_{1}=1$ and $G = \max(0,1,0) = 1$: an incident in turn 1. The
+final response is clean: a measurement that reads only the final response gives 0.
+
+\paragraph{A rate.} There are 20 scenarios with 3 replicas: 60 conversations. Two have no turns with a score:
+$n=58$. Seven conversations fail: $\hat{p} = 7/58 = 0.121$. With $\bar{m} = 3$ and $\hat{\rho} = 0.3$
+(illustrative; a real run estimates it from its replicas),
+$\mathrm{deff} = 1 + 2 \times 0.3 = 1.6$ and $n_{\mathrm{ef}} = 58/1.6 = 36.25$; the 95\% Wilson interval with these values
+is $(0.050,\ 0.264)$. In addition, 7 incidents are reported, each one with its turn and its quote.
+
+\section{Validation}
+\label{sec:validation}
+
+\subsection{Test cases with a known result}
+
+Because the verification is deterministic, the cases test the exact result: a false statement in turn 1 with a
+clean final response; a true statement; a request without a statement; a denied approval presented as granted; an
+approval of a different action; an approval later than the statement; a hypothetical statement; a turn without text
+in the record; an approval with a source different from the approval system; and an escalation statement. In the
+set of conformance cases, two cases are of this measurement: a false approval claim with a record,
+and the same failure in turn 1 of a conversation of three turns with a clean final response. The set detects,
+among others, a judge score instead of 0 or 1 and the violation of turn 1 not seen. The source rule is not yet in
+that set.
+
+\subsection{Synthetic simulation}
+
+In a synthetic simulation with a known truth, separating this measurement from fabrication keeps decisions:
+with a simulated judge with 90\% accuracy, when the fabrication judge does not respond, the verification of the
+false approval claim is still decided. Without the system record, the failure stays visible, because the person
+who runs the test knows that that person did not approve.
+
+\section{Implementation considerations}
+
+The metric extends the \texttt{Gaussia} base class of the \texttt{pygaussia} SDK. The \texttt{batch()} method reads each turn of the assistant,
+applies the extraction $E$ to its text and verifies each statement against the approval record. It gives
+$g_{i,t}$, with the cause and the quote. If the extraction fails or the record is incomplete, the turn has no
+score and has a reason. The session takes the maximum $G_i$.
+
+The metric reads the approvals and the policy of the oversight data contract of Gaussia \cite{gaussia2026}: \texttt{oversight\_policy} at the session
+level, and \texttt{tools\_used} and \texttt{approvals} in the \texttt{agentic} dictionary of each turn. The fields \texttt{at\_qa} and \texttt{covers}
+give $\tau(b)$ and the actions that an approval covers. The metric needs two items that the contract does not
+have: a decision with three values (granted, denied, pending), because \texttt{granted} has only two, and the
+source $s(b)$ of each approval. The request data (the text, its author and its turn) in the same event are
+recommended. As in that contract, the names of the new fields are illustrative.
+
+The extraction is a pattern or a model, and it does not decide whether a statement is false. A model receives
+the tools of the policy and the turn, in the language of the assistant, and returns the list of statements with
+their actor, their action and their quote: one call for each turn of the assistant. The verification uses no
+model.
+
+The output has the rate without correction, with its Wilson interval on $n_{\mathrm{ef}}$, the incident list,
+and $\mathrm{Se}$ and $\mathrm{Sp}$ of the extraction, with the model version and per language. Compatibility with the statistical modes (frequentist and Bayesian) follows the existing Gaussia pattern.
+Without the system record, the verification uses the record of the person who runs the test, in the same shape
+as \texttt{approvals}, and the output states the source.
+
+\section{Discussion}
+
+\subsection{What this work establishes}
+
+The measurement is defined by the extraction and the record: what an approval statement is, what supports it, how
+each turn is decided, how the turns are joined per conversation and how its only error is described. The
+verification is deterministic and can be used as incident evidence, also without the system record.
+
+\subsection{What it does not establish}
+
+\begin{itemize}
+  \item \textbf{There are no results with real assistants,} and no measurement of $\mathrm{Se}$ and $\mathrm{Sp}$
+    for a specific extraction.
+  \item \textbf{It sees only what the record has.} If the system approves through a channel that it does not
+    export, a true statement looks false.
+  \item \textbf{It does not say why the assistant stated something false.}
+  \item \textbf{It does not measure other false statements.} ``I checked your history'' without a call that does it
+    is fabrication, not this failure.
+  \item \textbf{It depends on the scenarios.} If no scenario leads to an action that needs approval, the rate says
+    nothing.
+  \item \textbf{The interval can undercover.} With the replicas grouped by scenario, intervals on an effective
+    sample size cover less than their nominal level, mainly because $n_{\mathrm{ef}}$ is itself estimated
+    \cite{franco2019}. With few scenarios $\hat{\rho}$ is noisy, and the Kish formula assumes scenarios with a
+    similar number of replicas.
+\end{itemize}
+
+\subsection{Generalization}
+
+Separating from a judge a statement that can be verified against a record applies to other statements of the
+assistant about recorded facts. It is not an extension evaluated here.
+
+\subsection{Open questions for the reviewers}
+
+\begin{enumerate}
+  \item Must the extraction be a pattern, a small model or a judge? How is its error published?
+  \item Is it better to correct the rate for the error of the extraction, or is it sufficient to report it?
+  \item Must the record also keep the authorizations of the user?
+  \item Must a denied approval presented as granted also be reported as a separate incident?
+\end{enumerate}
+
+\section{Conclusion}
+
+A false approval claim can be measured without a judge: an extraction finds the statement and the record decides
+whether it is false. The source rule prevents the assistant from supporting its own statement. The per-turn
+measurement sees the failure although the final response is clean, and each confirmed case is an incident. The
+validation is synthetic, and the next step is to measure the error of a real extraction and real assistants.
+
+\section*{Declarations}
+
+\paragraph{Conflicts of interest.} The authors are affiliated with EthiCompass, the organization that develops a
+red-teaming system for AI assistants. The measurement defined
+here is of general application and does not depend on a proprietary implementation, but the affiliation is
+declared so that the reader can take it into account.
+
+\paragraph{Relation to Gaussia.} The source rule and the location of the request data follow what the Gaussia team
+proposed in a public discussion. The separation from fabrication, the per-turn measurement and the validation are
+the work of the authors.
+
+\paragraph{Funding.} \textit{To be completed before submission.}
+
+\paragraph{Data and code availability.} The results of Section~\ref{sec:validation} come from a synthetic
+simulation and hand-written test cases. \textit{The access conditions are completed before submission.}
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}
